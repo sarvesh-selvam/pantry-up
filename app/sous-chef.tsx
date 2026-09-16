@@ -17,6 +17,7 @@ import { RecipeCard } from '../components/RecipeCard';
 import { colors, radii, spacing } from '../constants/theme';
 import { useAuth } from '../lib/auth/AuthContext';
 import { createRecipe, fetchRecipeById, suggestionToRecipeInsert } from '../lib/api/recipes';
+import { fetchRecipeVideos, toVideoLookupInput } from '../lib/api/youtube';
 import { sendSousChefMessage, type SousChefMessage, type SousChefRecipeContext } from '../lib/sousChef';
 import type { RecipeSuggestion } from '../types/recipe';
 
@@ -78,10 +79,25 @@ export default function SousChefScreen() {
     try {
       const history: SousChefMessage[] = nextMessages.map((m) => ({ role: m.role, content: m.content }));
       const { reply, recipe } = await sendSousChefMessage(history, recipeContext ?? undefined);
-      setMessages((prev) => [
-        ...prev,
-        { key: `${Date.now()}-assistant`, role: 'assistant', content: reply, recipe },
-      ]);
+      const assistantKey = `${Date.now()}-assistant`;
+      setMessages((prev) => [...prev, { key: assistantKey, role: 'assistant', content: reply, recipe }]);
+
+      // Fire-and-forget: the reply/card render immediately; the compact
+      // video preview pops in once the real YouTube search resolves,
+      // rather than blocking the whole chat turn on it.
+      if (recipe) {
+        fetchRecipeVideos(toVideoLookupInput(recipe))
+          .then((youtubeMetadata) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.key === assistantKey && m.recipe ? { ...m, recipe: { ...m.recipe, youtube_metadata: youtubeMetadata } } : m
+              )
+            );
+          })
+          .catch(() => {
+            // Non-fatal — the card just renders without a video preview.
+          });
+      }
     } catch (err) {
       setMessages((prev) => [
         ...prev,

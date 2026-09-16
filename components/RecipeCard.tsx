@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { colors, radii, spacing } from '../constants/theme';
 import type { RecipeSuggestion } from '../types/recipe';
 
@@ -78,6 +78,19 @@ export function RecipeCard({ recipe, onPress, variant = 'full', style }: Props) 
           {recipe.why_this_works}
         </Text>
       )}
+
+      {!isCompact && recipe.youtube_metadata && recipe.youtube_metadata.results.length > 0 && (
+        <View style={styles.videoRow}>
+          {recipe.youtube_metadata.results.slice(0, 2).map((video) => (
+            <View key={video.video_id} style={styles.videoItem}>
+              <Image source={{ uri: video.thumbnail_url }} style={styles.videoThumb} />
+              <Text style={styles.videoTitle} numberOfLines={2}>
+                {video.title}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -149,5 +162,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textMuted,
     marginTop: spacing.xs,
+  },
+  videoRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  videoItem: {
+    flex: 1,
+    gap: 2,
+  },
+  videoThumb: {
+    width: '100%',
+    height: 50,
+    borderRadius: radii.sm,
+    backgroundColor: colors.background,
+  },
+  videoTitle: {
+    fontSize: 10,
+    color: colors.textMuted,
   },
 });
