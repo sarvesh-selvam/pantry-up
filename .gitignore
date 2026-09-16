@@ -31,10 +31,14 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
 *.tsbuildinfo
+
+# local progress tracker (see REQUIREMENTS.md for the tracked spec)
+PLAN.md
 
 # generated native folders
 /ios
