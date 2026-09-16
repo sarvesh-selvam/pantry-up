@@ -1,6 +1,8 @@
 // Hand-written types mirroring the Postgres schema in /db/migrations.
 // If the schema changes, update these alongside the migration.
 
+import type { Recipe, RecipeDbInsert } from './recipe';
+
 export type FoodCategory =
   | 'produce'
   | 'dairy'
@@ -103,6 +105,18 @@ export type FoodStorageRule = {
   created_at: string;
 };
 
+export type SkillLevel = 'beginner' | 'intermediate' | 'advanced';
+
+export type UserPreferences = {
+  user_id: string;
+  cuisine_weights: Record<string, number>;
+  dietary_restrictions: string[];
+  skill_level: SkillLevel;
+  equipment: string[];
+  created_at: string;
+  updated_at: string;
+};
+
 // App-facing insert shape: callers (e.g. addItem) don't supply user_id, the
 // API layer stamps it on before writing.
 export type InventoryItemInsert = Omit<
@@ -151,6 +165,18 @@ export interface Database {
         Insert: Partial<FoodStorageRule> &
           Pick<FoodStorageRule, 'category' | 'preparation_state' | 'storage_location' | 'typical_shelf_life_days'>;
         Update: Partial<FoodStorageRule>;
+        Relationships: [];
+      };
+      recipes: {
+        Row: Recipe;
+        Insert: RecipeDbInsert;
+        Update: Partial<Omit<Recipe, 'id' | 'user_id' | 'created_at'>>;
+        Relationships: [];
+      };
+      user_preferences: {
+        Row: UserPreferences;
+        Insert: Partial<UserPreferences> & Pick<UserPreferences, 'user_id'>;
+        Update: Partial<UserPreferences>;
         Relationships: [];
       };
     };
