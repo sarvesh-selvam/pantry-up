@@ -9,6 +9,17 @@ export function todayLocalDate(): string {
   return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
 }
 
+/** Shifts a "YYYY-MM-DD" date by `days` (negative for earlier) — for the
+ * Macros tab's optional day-back navigation. */
+export function shiftLocalDate(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number);
+  const shifted = new Date(year, month - 1, day + days);
+  const y = shifted.getFullYear();
+  const m = String(shifted.getMonth() + 1).padStart(2, '0');
+  const d = String(shifted.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export async function fetchDailyNutrition(userId: string, date: string): Promise<DailyNutrition | null> {
   const { data, error } = await supabase
     .from('daily_nutrition')

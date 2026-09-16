@@ -3,11 +3,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CheckInBanner } from '../../components/CheckInBanner';
 import { KitchenStatusRow } from '../../components/KitchenStatusRow';
+import { MacroRingRow } from '../../components/MacroRingRow';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { RecipeCard } from '../../components/RecipeCard';
 import { RescueRowCard } from '../../components/RescueRowCard';
 import { SousChefEntryBar } from '../../components/SousChefEntryBar';
 import { colors, spacing } from '../../constants/theme';
+import { fetchDailyNutrition, todayLocalDate } from '../../lib/api/dailyNutrition';
 import { createRecipe, suggestionToRecipeInsert } from '../../lib/api/recipes';
 import { fetchHomeSuggestions } from '../../lib/api/recipeSuggestions';
 import { useAuth } from '../../lib/auth/AuthContext';
@@ -15,6 +17,7 @@ import { getCheckInCandidates } from '../../lib/checkInScoring';
 import { isUncertain } from '../../lib/formatInventory';
 import { useInventory } from '../../lib/inventory/InventoryContext';
 import { getRescueRowEntries } from '../../lib/rescueRow';
+import type { DailyNutrition } from '../../types/database';
 import type { RecipeSuggestion } from '../../types/recipe';
 
 export default function HomeScreen() {
@@ -25,6 +28,23 @@ export default function HomeScreen() {
   const rescueRowEntries = useMemo(() => getRescueRowEntries(items), [items]);
   const checkInCandidates = useMemo(() => getCheckInCandidates(items), [items]);
   const uncertainCount = useMemo(() => items.filter(isUncertain).length, [items]);
+
+  const [todayNutrition, setTodayNutrition] = useState<DailyNutrition | null>(null);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    fetchDailyNutrition(session.user.id, todayLocalDate())
+      .then((result) => {
+        if (!cancelled) setTodayNutrition(result);
+      })
+      .catch(() => {
+        // Non-fatal — Home's ring is a glanceable summary, not critical path.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   const [suggestions, setSuggestions] = useState<RecipeSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
@@ -78,26 +98,24 @@ export default function HomeScreen() {
       <Text style={styles.title}>Welcome to PantryUp</Text>
       <Text style={styles.subtitle}>{session?.user.email}</Text>
 
+      {/* Section A: compact daily macro summary — a glance, not the full
+          Macros tab experience. Always shown (even at all-zero) so Home has
+          a consistent, predictable layout day to day. */}
+      <View style={styles.macroWrapper}>
+        <MacroRingRow
+          calories={todayNutrition?.calories ?? 0}
+          proteinG={todayNutrition?.protein_g ?? 0}
+          carbsG={todayNutrition?.carbs_g ?? 0}
+          fatG={todayNutrition?.fat_g ?? 0}
+          size="compact"
+        />
+      </View>
+
       <View style={styles.entryBarWrapper}>
         <SousChefEntryBar onPress={() => router.push('/sous-chef')} />
       </View>
 
-      {items.length > 0 && (
-        <View style={styles.statusWrapper}>
-          <KitchenStatusRow
-            totalItems={items.length}
-            needsCheckIn={checkInCandidates.length}
-            uncertain={uncertainCount}
-          />
-        </View>
-      )}
-
-      {checkInCandidates.length > 0 && (
-        <View style={styles.statusWrapper}>
-          <CheckInBanner count={checkInCandidates.length} onPress={() => router.push('/check-in')} />
-        </View>
-      )}
-
+      {/* Section B: Rescue Row — what needs attention soon. */}
       {rescueRowEntries.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Needs attention</Text>
@@ -115,6 +133,7 @@ export default function HomeScreen() {
         </View>
       )}
 
+      {/* Section C: What should I cook? */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>What should I cook?</Text>
         {suggestionsLoading ? (
@@ -147,9 +166,24 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <Text style={styles.comingSoon}>
-        Nutrition and Search land in later phases. Head to the Pantry tab to manage your inventory.
-      </Text>
+      {/* Section D: Kitchen Status + the Check-In entry point. */}
+      {items.length > 0 && (
+        <View style={styles.statusWrapper}>
+          <KitchenStatusRow
+            totalItems={items.length}
+            needsCheckIn={checkInCandidates.length}
+            uncertain={uncertainCount}
+          />
+        </View>
+      )}
+
+      {checkInCandidates.length > 0 && (
+        <View style={styles.statusWrapper}>
+          <CheckInBanner count={checkInCandidates.length} onPress={() => router.push('/check-in')} />
+        </View>
+      )}
+
+      <Text style={styles.comingSoon}>Search lands in a later phase. Head to the Pantry tab to manage your inventory.</Text>
       <View style={styles.signOut}>
         <PrimaryButton label="Log out" onPress={signOut} variant="secondary" />
       </View>
@@ -175,6 +209,10 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14,
     color: colors.textMuted,
+  },
+  macroWrapper: {
+    width: '100%',
+    marginTop: spacing.md,
   },
   entryBarWrapper: {
     width: '100%',
