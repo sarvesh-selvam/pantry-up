@@ -66,7 +66,9 @@ const UNIT_SYNONYMS: Record<string, string> = {
   count: 'count',
 };
 
-function normalizeUnit(unit: string | null): string | null {
+/** Exported for reuse by lib/cookingMutations.ts, which needs the same
+ * unit-synonym normalization when proposing inventory deductions. */
+export function normalizeUnit(unit: string | null): string | null {
   if (!unit) return null;
   const key = unit.trim().toLowerCase();
   return UNIT_SYNONYMS[key] ?? key;

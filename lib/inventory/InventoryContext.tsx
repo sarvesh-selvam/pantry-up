@@ -33,7 +33,7 @@ interface InventoryContextValue {
   isLoading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  addItem: (item: InventoryItemInsert) => Promise<void>;
+  addItem: (item: InventoryItemInsert) => Promise<InventoryItem>;
   editItem: (id: string, updates: InventoryItemUpdate) => Promise<void>;
   removeItem: (id: string) => Promise<void>;
   quickAddDraft: QuickAddDraftItem[];
@@ -90,6 +90,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
       if (!userId) throw new Error('Not signed in');
       const created = await createInventoryItem(userId, item);
       setItems((prev) => [...prev, created]);
+      return created;
     },
     [userId]
   );
