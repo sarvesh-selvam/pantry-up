@@ -79,6 +79,28 @@ export type RecipeYoutubeMetadata = {
   results: YoutubeVideoResult[];
 };
 
+/**
+ * Every term the deterministic recommendation-ranking function
+ * (lib/recommendationScoring.ts / _shared/recommendationScoring.ts)
+ * computed for one recipe, each in [0, 1] (penalties too, as positive
+ * magnitudes subtracted at combine-time) — kept alongside the final
+ * `score` so ranking stays inspectable, not an opaque number. See that
+ * module's header comment for the full weighting/formula and for which
+ * terms are honestly neutral (0.5) this phase because their real input
+ * (a stated macro goal) doesn't exist yet.
+ */
+export type RecipeScoreBreakdown = {
+  pantry_coverage: number;
+  expiry_rescue_score: number;
+  preference_match: number;
+  time_match: number;
+  macro_match: number;
+  equipment_match: number;
+  novelty_score: number;
+  missing_ingredient_penalty: number;
+  recent_meal_repetition_penalty: number;
+};
+
 export type GeneratedContext = {
   /** The free-text request/constraints this recipe was generated from. */
   constraints: string;
@@ -89,6 +111,19 @@ export type GeneratedContext = {
   /** PantryUp's explainability principle: never just "Recommended by AI" —
    * always say what pantry/rescue items it uses and why it fits. */
   why_this_works: string;
+  /** Deterministic bullets generated straight from `score_breakdown`'s
+   * real numbers (lib/api/recipes.ts's suggestionToRecipeInsert calls
+   * buildWhyBullets) — see RecipeSuggestion.why_bullets. Empty for
+   * recipes saved before Phase 8, or for manual/scanned recipes that
+   * never went through ranking; the UI falls back to `why_this_works`'s
+   * prose in that case. */
+  why_bullets: string[];
+  /** The final weighted-sum score and its full breakdown, persisted for
+   * inspectability — not shown as a raw number in the UI, but available
+   * for debugging "why did this rank where it did." Null for the same
+   * never-ranked cases as why_bullets. */
+  score: number | null;
+  score_breakdown: RecipeScoreBreakdown | null;
 };
 
 export type Recipe = {
@@ -108,6 +143,11 @@ export type Recipe = {
   tags: string[];
   is_favorite: boolean;
   generated_context: GeneratedContext | null;
+  /** Controlled-vocabulary equipment tags (see lib/preferenceOptions.ts),
+   * inferred heuristically by the LLM at generation time — always empty
+   * for manual/scanned recipes ("no requirement known", scored as a
+   * neutral match, never a penalty). See db/migrations/0018. */
+  equipment_needed: string[];
   created_at: string;
   updated_at: string;
 };
@@ -132,8 +172,14 @@ export type RecipeSuggestion = {
   pantry_coverage_label: string;
   missing_ingredient_count: number;
   why_this_works: string;
+  /** See GeneratedContext.why_bullets — the deterministic, grounded
+   * replacement for trusting `why_this_works` prose alone. */
+  why_bullets: string[];
+  score: number | null;
+  score_breakdown: RecipeScoreBreakdown | null;
   rescued_ingredient_names: string[];
   nutrition: RecipeNutrition | null;
+  equipment_needed: string[];
   /** Always null straight out of generation (Sous Chef/Home suggestions) —
    * see recipe-videos' header comment for why this isn't fetched eagerly
    * for every generated candidate. Sous Chef's chat screen fetches it

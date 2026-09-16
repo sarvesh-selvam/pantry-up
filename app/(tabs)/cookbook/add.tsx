@@ -133,6 +133,7 @@ export default function AddRecipeScreen() {
           .filter((line) => line.length > 0),
         nutrition,
         youtube_metadata: null,
+        equipment_needed: [],
         tags: tagsText
           .split(',')
           .map((tag) => tag.trim())

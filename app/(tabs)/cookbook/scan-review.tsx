@@ -116,6 +116,7 @@ export default function ScanReviewScreen() {
           .filter((line) => line.length > 0),
         nutrition: scannedRecipeDraft!.nutrition,
         youtube_metadata: null,
+        equipment_needed: [],
         tags: scannedRecipeDraft!.tags,
         is_favorite: false,
         generated_context: null,

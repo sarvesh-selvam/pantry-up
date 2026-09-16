@@ -144,6 +144,43 @@ export type UserPreferences = {
   updated_at: string;
 };
 
+/** Why an inventory item left the pantry — see db/migrations/0016 for the
+ * full reasoning on why this is a separate insert-only log rather than a
+ * column on inventory_items (which is hard-deleted on removal). */
+export type ItemDispositionValue = 'consumed' | 'discarded' | 'unknown';
+
+export type ItemDisposition = {
+  id: string;
+  user_id: string;
+  canonical_food_id: string | null;
+  display_name: string;
+  disposition: ItemDispositionValue;
+  source: string;
+  recorded_at: string;
+};
+
+export type ItemDispositionInsert = Omit<ItemDisposition, 'id' | 'user_id' | 'recorded_at'> &
+  Partial<Pick<ItemDisposition, 'recorded_at'>>;
+
+export type ItemDispositionDbInsert = ItemDispositionInsert & Pick<ItemDisposition, 'user_id'>;
+
+/** Home suggestion shown-vs-saved tracking — see db/migrations/0017. */
+export type RecommendationAction = 'shown' | 'tapped';
+
+export type RecommendationEvent = {
+  id: string;
+  user_id: string;
+  cuisine: string | null;
+  recipe_title: string;
+  action: RecommendationAction;
+  created_at: string;
+};
+
+export type RecommendationEventInsert = Omit<RecommendationEvent, 'id' | 'user_id' | 'created_at'> &
+  Partial<Pick<RecommendationEvent, 'created_at'>>;
+
+export type RecommendationEventDbInsert = RecommendationEventInsert & Pick<RecommendationEvent, 'user_id'>;
+
 // App-facing insert shape: callers (e.g. addItem) don't supply user_id, the
 // API layer stamps it on before writing.
 export type InventoryItemInsert = Omit<
@@ -223,6 +260,18 @@ export interface Database {
         Row: DailyNutrition;
         Insert: Partial<DailyNutrition> & Pick<DailyNutrition, 'user_id' | 'log_date'>;
         Update: Partial<DailyNutrition>;
+        Relationships: [];
+      };
+      item_dispositions: {
+        Row: ItemDisposition;
+        Insert: ItemDispositionDbInsert;
+        Update: never;
+        Relationships: [];
+      };
+      recommendation_events: {
+        Row: RecommendationEvent;
+        Insert: RecommendationEventDbInsert;
+        Update: never;
         Relationships: [];
       };
     };

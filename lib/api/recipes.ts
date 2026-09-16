@@ -17,6 +17,7 @@ export function suggestionToRecipeInsert(suggestion: RecipeSuggestion, constrain
     instructions: suggestion.instructions,
     nutrition: suggestion.nutrition,
     youtube_metadata: suggestion.youtube_metadata,
+    equipment_needed: suggestion.equipment_needed,
     tags: suggestion.tags,
     is_favorite: false,
     generated_context: {
@@ -26,6 +27,9 @@ export function suggestionToRecipeInsert(suggestion: RecipeSuggestion, constrain
       dietary_restrictions_enforced: [],
       cuisine_preference_used: suggestion.cuisine,
       why_this_works: suggestion.why_this_works,
+      why_bullets: suggestion.why_bullets,
+      score: suggestion.score,
+      score_breakdown: suggestion.score_breakdown,
     },
   };
 }

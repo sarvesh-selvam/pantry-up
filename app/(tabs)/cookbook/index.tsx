@@ -122,8 +122,12 @@ export default function CookbookScreen() {
                     pantry_coverage_label: match.pantryCoverageLabel,
                     missing_ingredient_count: match.missingIngredientCount,
                     why_this_works: recipe.generated_context?.why_this_works ?? '',
+                    why_bullets: recipe.generated_context?.why_bullets ?? [],
+                    score: recipe.generated_context?.score ?? null,
+                    score_breakdown: recipe.generated_context?.score_breakdown ?? null,
                     rescued_ingredient_names: [],
                     nutrition: recipe.nutrition,
+                    equipment_needed: recipe.equipment_needed,
                     youtube_metadata: recipe.youtube_metadata,
                   }}
                   variant="compact"
