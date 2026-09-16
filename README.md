@@ -20,6 +20,12 @@ A mobile-first, inventory-aware kitchen app.
   staleness/uncertainty scoring function surfaces a small, capped batch of
   genuinely-in-doubt items, reviewed via a fast tap-through card flow that
   repairs pantry drift without ever asking about the whole pantry.
+- **Phase 6: Cookbook and Nutrition** — a real Cookbook tab (favorites,
+  manual entry, cookbook page scanning, all through the review-before-save
+  pattern), a deterministic nutrition calculation service backed by seeded
+  USDA-derived reference data (never LLM-invented), and consumption-
+  triggered macro logging (finishing a cook, or eating a leftover) feeding
+  Home's compact macro rings and a real Macros tab.
 
 ## Stack
 
@@ -37,25 +43,37 @@ app/              Screens and routes (expo-router)
   (auth)/         Login / signup, shown when signed out
   (tabs)/         Home, Search (→ History), Pantry, Cookbook, Macros tabs
     pantry/       Pantry list, add/edit item, Quick Add, Receipt Scan, review
+    cookbook/     Recipe grid (favorites, pantry coverage), manual entry,
+                   cookbook page scan + scan review — own nested stack
+    macros.tsx    Daily macro rings + day-back navigation
   sous-chef.tsx   Sous Chef chat (modal, reachable from Home or mid-cook,
                    optionally grounded in the recipe being cooked)
-  recipe/[id]     Recipe detail screen — ingredients live-matched, "Cook This"
+  recipe/[id]     Recipe detail screen — ingredients live-matched, "Cook This",
+                   favorite toggle, per-serving nutrition
   recipe/[id]/cook     Cooking Mode: step-by-step, timers, inline ingredients
   recipe/[id]/finish   Finish Cooking: servings → mutation proposal →
-                        confirm → optional leftovers, in that order
+                        confirm → optional leftovers → consumed-nutrition
+                        logging, in that order
   check-in.tsx    Kitchen Check-In (modal, reachable only from Home's
                    entry banner, only when something needs review)
 components/       Shared UI components (incl. RecipeCard, reused by Sous
-                   Chef's inline cards and Home's suggestion cards;
-                   StepTimer and TechniqueVideoSlot for Cooking Mode;
-                   CheckInCard/CheckInBanner/KitchenStatusRow for Check-In)
+                   Chef's inline cards, Home's suggestion cards, and
+                   Cookbook's grid; StepTimer and TechniqueVideoSlot for
+                   Cooking Mode; CheckInCard/CheckInBanner/KitchenStatusRow
+                   for Check-In; MacroRingRow for Home and Macros)
 constants/        Design tokens (colors, spacing)
 lib/              Supabase client, auth/inventory contexts, API helpers,
-                   the Quick Add parser, the receipt scanner, the
-                   client-side recipe-to-inventory matching engine, the
+                   the Quick Add parser, the receipt scanner, shared image
+                   capture (imageCapture.ts, used by both Receipt Scan and
+                   Cookbook Scan), the cookbook scanner, the client-side
+                   recipe-to-inventory matching engine, the deterministic
+                   nutrition calculation service (nutritionCalculation.ts)
+                   and consumption logging (nutritionLogging.ts), the
                    inventory mutation proposal engine (cookingMutations.ts),
                    and Check-In's staleness scoring + response handling
                    (checkInScoring.ts, checkInResponses.ts)
+  cookbook/CookbookScanContext.tsx   scan-draft handoff, scoped to the
+                   Cookbook stack (same pattern as quickAddDraft)
 types/            Hand-written types mirroring the Postgres schema
 db/migrations/    SQL migrations, applied in filename order
 supabase/functions/  Edge Functions (Deno):
@@ -63,9 +81,12 @@ supabase/functions/  Edge Functions (Deno):
                       sous-chef-chat — tool-calling recipe assistant,
                       optionally grounded in a recipe being cooked
                       recipe-suggestions — Home's automatic suggestions
+                      cookbook-scan — vision-extracts title/ingredients/
+                      instructions from a cookbook photo, nothing invented
                       _shared/ — normalization pipeline, recipe generation,
                       dietary-restriction enforcement, matching engine (Deno
-                      port), pantry context loader
+                      port), pantry context loader, nutrition calculation
+                      (Deno port)
 ```
 
 ## Prerequisites
@@ -112,6 +133,10 @@ supabase/functions/  Edge Functions (Deno):
    db/migrations/0009_user_preferences.sql
    db/migrations/0010_cook_events.sql
    db/migrations/0011_inventory_source_cooking.sql
+   db/migrations/0012_recipes_favorite.sql
+   db/migrations/0013_nutrition_data.sql
+   db/migrations/0014_daily_nutrition.sql
+   db/migrations/0015_inventory_source_recipe_link.sql
    ```
 
    (If you have the Supabase CLI linked to your project — `supabase link` —
@@ -131,6 +156,15 @@ supabase/functions/  Edge Functions (Deno):
    `0011` — since Postgres won't let a new enum value be used in the same
    transaction that adds it) for leftovers created from Cooking Mode.
 
+   `0012`-`0015` (Phase 6) add `recipes.is_favorite`; a `nutrition_data`
+   table seeded with per-100g calories/protein/carbs/fat for every
+   canonical food (sourced from USDA FoodData Central figures — see Known
+   limitations for what "sourced from" means here); a `daily_nutrition`
+   table plus the `increment_daily_nutrition` Postgres function consumption
+   logging writes through (a plain PostgREST upsert can't express "add to
+   today's total," only replace it); and `inventory_items.source_recipe_id`
+   so eating a leftover can trace back to the recipe it was cooked from.
+
 4. In Supabase Auth settings, email/password sign-in is enabled by default.
    If you want to skip email confirmation during local testing, turn off
    "Confirm email" under Authentication → Providers → Email.
@@ -146,6 +180,7 @@ supabase/functions/  Edge Functions (Deno):
    supabase functions deploy receipt-scan
    supabase functions deploy sous-chef-chat
    supabase functions deploy recipe-suggestions
+   supabase functions deploy cookbook-scan
    ```
 
    See [Edge Functions](#edge-functions) below for what each one does.
@@ -161,12 +196,18 @@ code with Expo Go.
 
 ## Edge Functions
 
-All four live under `supabase/functions/`, sharing common modules in
+All five live under `supabase/functions/`, sharing common modules in
 `supabase/functions/_shared/`. All require `SUPABASE_URL` /
 `SUPABASE_ANON_KEY` (auto-injected by the Edge Runtime) and
 `ANTHROPIC_API_KEY` (set via `supabase secrets set`, above).
 `supabase/functions/deno.lock` pins the resolved `npm:`/`jsr:` dependency
 versions for reproducible deploys — commit it like a regular lockfile.
+
+None of the five write directly to `inventory_items`, `recipes`,
+`cook_events`, or `daily_nutrition` — every one only returns suggestions or
+computed values; the client is the only thing that ever persists them, and
+only after the user reviews/confirms or (for macro logging) actually
+finishes cooking or eats a leftover.
 
 **Phase 2 — normalization** (share `_shared/matching.ts`: builds the
 canonical-foods prompt fragment and validates the model's JSON response).
@@ -219,6 +260,42 @@ what that keyword list does and doesn't cover.
 `create_shopping_items` is intentionally a stub — it logs and returns
 `{ status: 'not_implemented' }` with no DB writes. The Need to Buy /
 shopping list feature is a later phase.
+
+**Phase 6 — Cookbook scanning and deterministic nutrition** (shares
+`_shared/nutritionCalculation.ts`, a Deno port of
+`lib/nutritionCalculation.ts`).
+
+- **`cookbook-scan`** — input `{ storagePath: string }` (uploaded to the
+  same private `receipts` bucket Receipt Scan uses, under a
+  `<user>/cookbook/` prefix). Downloads the image, sends it to
+  `claude-opus-5` with vision, prompted to extract only what's actually on
+  the page — title, ingredients (with quantities where legible),
+  instructions, nothing else invented. Runs extracted ingredients through
+  the same canonical-food matching used everywhere else, then computes
+  nutrition server-side via `computeRecipeNutrition` before returning.
+  Confidence values on the title/instructions/each ingredient drive a
+  deterministic `needs_verification` flag computed server-side (not left to
+  the model to self-report) — see Known limitations for the exact
+  threshold. Like every other function here, it never writes to `recipes`;
+  the client always lands on a review/confirm screen first.
+
+**Nutrition is computed, never guessed by the LLM.** `nutrition_data`
+(`db/migrations/0013_nutrition_data.sql`) holds per-100g calories/protein/
+carbs/fat for every canonical food. `computeRecipeNutrition` (client:
+`lib/nutritionCalculation.ts`; server: `_shared/nutritionCalculation.ts`,
+kept in sync manually) sums each ingredient's nutrition scaled by its
+quantity — converted to grams only for real weight units (g/kg/oz/lb via
+fixed factors) — then divides by servings. An ingredient with no
+`canonical_food_id` match, or a quantity in a non-weight unit (cup, clove,
+can, ...), is excluded from the sum rather than guessed, and the whole
+result is flagged `is_partial: true` so the UI can say so honestly instead
+of showing a falsely-precise number. This is wired into recipe generation
+(both `sous-chef-chat` and `recipe-suggestions` populate `nutrition` on
+every generated recipe) and into manual/scanned saves on the client — but
+**never into `daily_nutrition`**. Saving or generating a recipe only
+computes and stores a per-serving nutrition estimate on the recipe itself;
+only a confirmed consumption event (Finish Cooking, or eating a leftover —
+see Known limitations) logs anything to `daily_nutrition`.
 
 ## What's implemented
 
@@ -321,8 +398,41 @@ shopping list feature is a later phase.
   simply absent, not a zero-state, when nothing needs review. Check-In
   never auto-launches — the banner is the only entry point, always tapped
 
-Cookbook and Macros are still placeholder "Coming soon" screens — their
-functionality lands in later phases.
+**Phase 6**
+- Cookbook tab (`app/(tabs)/cookbook/`): a real 2-column grid of every
+  saved recipe — AI-generated (Sous Chef/Home), manual, and cookbook-scanned
+  all show up together — with a Favorites filter chip and a favorite-star
+  toggle on each card, live "X of Y ingredients" pantry coverage computed
+  the same way Home's suggestion cards do, and the same coverage/nutrition
+  on the recipe detail screen
+- Manual Recipe Entry (`cookbook/add.tsx`): a two-stage form → review flow
+  — ingredients typed as free text go through the same `parseQuickAddText`
+  normalization Quick Add uses, so they resolve to `canonical_food_id`
+  where possible before saving with `source_type: 'manual'`
+- Cookbook Scan (`cookbook/scan.tsx` + `scan-review.tsx`): reuses Receipt
+  Scan's camera/photo-picker infrastructure (`lib/imageCapture.ts`,
+  extracted this phase) and the same private Storage bucket, sends the
+  photo to `cookbook-scan` for vision extraction, and requires a
+  review/confirm step before saving as `source_type: 'cookbook_scan'` —
+  low-confidence fields (per-ingredient and whole-recipe) get the same
+  orange "?" `UncertaintyBadge` pattern used everywhere else in the app
+- Deterministic nutrition (`lib/nutritionCalculation.ts` /
+  `_shared/nutritionCalculation.ts`): per-serving calories/protein/carbs/fat
+  computed from seeded `nutrition_data`, never LLM-invented — see Edge
+  Functions above for the full algorithm and the honest-partial-estimate
+  rule. Shown on the recipe detail screen with a disclaimer when partial
+- Macro logging only on confirmed consumption: Finish Cooking
+  (`recipe/[id]/finish.tsx`) computes `nutrition_consumed` from
+  `servings_consumed` and logs it to `daily_nutrition` right before writing
+  the `cook_event`; eating a leftover (Check-In's "Ate It", or Pantry's new
+  "I ate this" action on any `leftover` item) logs the same way via
+  `lib/nutritionLogging.ts`, tied back to the leftover's `source_recipe_id`
+  when traceable. Recipe generation and every save path (manual, scanned,
+  AI-suggested) never logs nutrition — only a real consumption event does
+- Macros tab (`app/(tabs)/macros.tsx`): real ring-style badges
+  (`components/MacroRingRow.tsx`) for the day's logged totals, plus simple
+  day-back navigation; Home gained a compact version of the same rings at
+  the top of the screen, both reading from the same `daily_nutrition` table
 
 ## Known limitations
 
@@ -420,3 +530,48 @@ functionality lands in later phases.
   other screen already uses — there is no parallel code path that could
   diverge, which is a stronger guarantee than "we tested it once," but
   it's still not the same as having actually run it.
+- `nutrition_data`'s per-100g figures are hand-curated approximations
+  informed by commonly published USDA FoodData Central values, not a
+  verbatim FoodData Central export/API pull — same caveat as
+  `food_storage_rules`' shelf-life figures, and same reasoning (validate
+  before relying on this for real dietary decisions, e.g. medical macro
+  tracking).
+- Nutrition math converts only real weight units (g/kg/oz/lb, via fixed
+  factors) to grams. Count-ish units (cup, clove, can, tbsp, ...) are
+  excluded from the sum entirely rather than guessed at a conversion — same
+  "no data beats an invented number" stance as recipe-to-inventory matching
+  (Phase 3) and cooking mutations (Phase 4). This is a meaningful source of
+  `is_partial: true` recipes, not just unmatched ingredients.
+- `cookbook-scan` computes `needs_verification` for the *whole recipe* from
+  a threshold on title/instructions/ingredient confidence
+  (`LOW_CONFIDENCE_THRESHOLD = 0.5`), plus a per-ingredient orange "?" for
+  any ingredient below that same threshold — there's no separate
+  per-field (title vs. instructions) indicator beyond that. A recipe with
+  one low-confidence line still needs full review, not just that line.
+- The `Functions` field of `types/database.ts`'s `Database` type can't use
+  the same `Record<string, never>` empty-schema shortcut `Views`/`Enums`/
+  `CompositeTypes` use — `@supabase/supabase-js` resolves `.rpc()`'s params
+  type to `undefined` for any function typed that way. Any new RPC function
+  needs a real `{ Args: {...}; Returns: T }` entry in `Functions`, not the
+  shortcut. Discovered adding `increment_daily_nutrition`; see CLAUDE.md's
+  Gotchas.
+- Eating a leftover doesn't prompt "how many servings did you eat?" as the
+  spec's literal wording suggested — it defaults to the leftover's full
+  remaining `quantity_value` as servings consumed (reasoned as: "Ate It"/
+  removing the item means it's gone now, so what was left is what was
+  eaten). A servings-count prompt would have added a step Check-In's
+  "tapping a response IS the confirmation" design (Phase 5) deliberately
+  avoids. Eating a leftover also never creates a new `cook_events` row —
+  no new cooking happened, so only `daily_nutrition` updates directly.
+- Consumption logging for a leftover with no `source_recipe_id` (or whose
+  source recipe has no computed `nutrition`) is silently skipped, not
+  logged as some fabricated "standalone" entry — consistent with every
+  other "no data beats a guess" decision in this app, at the cost of
+  under-counting nutrition for leftovers that predate this phase or that
+  were added by some path other than Cooking Mode.
+- The macro rings (`components/MacroRingRow.tsx`) are plain colored-border
+  circular badges showing raw totals, not true percent-of-goal progress
+  fills — there's no calorie/macro target data model in this phase (no
+  personalization was scoped), so a fill percentage would either be
+  meaningless or silently imply a target the app never actually set. No
+  new dependency (`react-native-svg`) was added for this reason.
