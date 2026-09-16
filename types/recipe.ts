@@ -119,6 +119,36 @@ export type RecipeMatchResult = {
   missingIngredientCount: number;
 };
 
+/** One ingredient line as extracted by cookbook-scan — same field naming
+ * as the Edge Function's response, before it's been mapped to a
+ * RecipeIngredient for saving. */
+export type ScannedIngredient = {
+  raw_text: string;
+  canonical_food_id_guess: string | null;
+  display_name: string;
+  quantity_value: number | null;
+  quantity_unit: string | null;
+  confidence: number;
+};
+
+/** What cookbook-scan returns — a suggestion only, reviewed/edited on
+ * app/(tabs)/cookbook/scan-review.tsx before being saved as a real Recipe. */
+export type ScannedRecipeDraft = {
+  title: string;
+  description: string | null;
+  cuisine: string | null;
+  servings: number | null;
+  prep_time: number | null;
+  cook_time: number | null;
+  ingredients: ScannedIngredient[];
+  instructions: string[];
+  tags: string[];
+  /** Whole-recipe uncertainty flag — see cookbook-scan's header comment for
+   * why whole-recipe rather than per-field. */
+  needs_verification: boolean;
+  nutrition: RecipeNutrition | null;
+};
+
 /** What generate_recipe (client- or server-side) produces before it's been
  * matched or saved — no id/user_id/timestamps yet. */
 export type GeneratedRecipeDraft = {
