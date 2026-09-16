@@ -73,10 +73,20 @@ export function RecipeCard({ recipe, onPress, variant = 'full', style }: Props) 
         </Text>
       )}
 
-      {!isCompact && (
-        <Text style={styles.whyText} numberOfLines={3}>
-          {recipe.why_this_works}
-        </Text>
+      {!isCompact && recipe.why_bullets.length > 0 ? (
+        <View style={styles.whyBullets}>
+          {recipe.why_bullets.map((bullet, index) => (
+            <Text key={index} style={styles.whyBulletText} numberOfLines={2}>
+              • {bullet}
+            </Text>
+          ))}
+        </View>
+      ) : (
+        !isCompact && (
+          <Text style={styles.whyText} numberOfLines={3}>
+            {recipe.why_this_works}
+          </Text>
+        )
       )}
 
       {!isCompact && recipe.youtube_metadata && recipe.youtube_metadata.results.length > 0 && (
@@ -162,6 +172,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textMuted,
     marginTop: spacing.xs,
+  },
+  whyBullets: {
+    marginTop: spacing.xs,
+    gap: 2,
+  },
+  whyBulletText: {
+    fontSize: 12,
+    color: colors.textMuted,
   },
   videoRow: {
     flexDirection: 'row',

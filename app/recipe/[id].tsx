@@ -140,7 +140,15 @@ export default function RecipeDetailScreen() {
       {recipe.generated_context?.why_this_works && (
         <View style={styles.whyBox}>
           <Text style={styles.whyLabel}>Why this works</Text>
-          <Text style={styles.whyText}>{recipe.generated_context.why_this_works}</Text>
+          {recipe.generated_context.why_bullets.length > 0 ? (
+            recipe.generated_context.why_bullets.map((bullet, index) => (
+              <Text key={index} style={styles.whyText}>
+                • {bullet}
+              </Text>
+            ))
+          ) : (
+            <Text style={styles.whyText}>{recipe.generated_context.why_this_works}</Text>
+          )}
         </View>
       )}
 
