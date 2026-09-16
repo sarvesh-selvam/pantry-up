@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../constants/theme';
-import { fetchRecipeById, setRecipeFavorite } from '../../lib/api/recipes';
+import { fetchRecipeById, setRecipeFavorite, updateRecipeYoutubeMetadata } from '../../lib/api/recipes';
+import { fetchRecipeVideos, toVideoLookupInput } from '../../lib/api/youtube';
 import { useInventory } from '../../lib/inventory/InventoryContext';
 import { matchRecipeToInventory } from '../../lib/recipeMatching';
 import type { IngredientMatchStatus, Recipe, RecipeIngredient } from '../../types/recipe';
@@ -23,6 +24,7 @@ export default function RecipeDetailScreen() {
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [videosLoading, setVideosLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +44,31 @@ export default function RecipeDetailScreen() {
       cancelled = true;
     };
   }, [id]);
+
+  async function loadVideos() {
+    if (!recipe) return;
+    setVideosLoading(true);
+    try {
+      const youtubeMetadata = await fetchRecipeVideos(toVideoLookupInput(recipe));
+      const updated = await updateRecipeYoutubeMetadata(recipe.id, youtubeMetadata);
+      setRecipe(updated);
+    } catch (err) {
+      console.warn('Failed to load technique videos', err);
+    } finally {
+      setVideosLoading(false);
+    }
+  }
+
+  // Lazy fetch, once per recipe: only when this recipe has never been
+  // looked up before (no cached youtube_metadata). Manual refresh (below)
+  // re-runs loadVideos unconditionally. Not re-triggered by the state
+  // update loadVideos itself causes, since the dependency is just the id.
+  useEffect(() => {
+    if (recipe && !recipe.youtube_metadata && !videosLoading) {
+      loadVideos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe?.id]);
 
   // Re-run the matching engine against current inventory rather than
   // trusting the stored snapshot — inventory changes after a recipe is
@@ -162,6 +189,50 @@ export default function RecipeDetailScreen() {
           <Text style={styles.stepText}>{step}</Text>
         </View>
       ))}
+
+      <View style={styles.watchHeaderRow}>
+        <Text style={styles.sectionTitle}>Watch</Text>
+        <Pressable
+          onPress={loadVideos}
+          disabled={videosLoading}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh technique videos"
+        >
+          {videosLoading ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <Ionicons name="refresh-outline" size={16} color={colors.primary} />
+          )}
+        </Pressable>
+      </View>
+      {recipe.youtube_metadata && recipe.youtube_metadata.results.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.watchRow}>
+            {recipe.youtube_metadata.results.map((video) => (
+              <Pressable
+                key={video.video_id}
+                style={styles.watchCard}
+                onPress={() => Linking.openURL(video.video_url)}
+                accessibilityRole="button"
+                accessibilityLabel={`Watch ${video.title} on YouTube`}
+              >
+                <Image source={{ uri: video.thumbnail_url }} style={styles.watchThumb} />
+                <Text style={styles.watchTitle} numberOfLines={2}>
+                  {video.title}
+                </Text>
+                <Text style={styles.watchChannel} numberOfLines={1}>
+                  {video.channel_title}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
+      ) : (
+        <Text style={styles.watchEmpty}>
+          {videosLoading ? 'Looking for technique videos…' : 'No technique videos found yet.'}
+        </Text>
+      )}
 
       {recipe.tags.length > 0 && (
         <View style={styles.tagsRow}>
@@ -327,6 +398,38 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: colors.text,
+  },
+  watchHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  watchRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  watchCard: {
+    width: 140,
+    gap: 2,
+  },
+  watchThumb: {
+    width: 140,
+    height: 80,
+    borderRadius: radii.sm,
+    backgroundColor: colors.surface,
+  },
+  watchTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  watchChannel: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  watchEmpty: {
+    fontSize: 13,
+    color: colors.textMuted,
   },
   tagsRow: {
     flexDirection: 'row',
