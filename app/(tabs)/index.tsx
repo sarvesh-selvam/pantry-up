@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { CheckInBanner } from '../../components/CheckInBanner';
+import { KitchenStatusRow } from '../../components/KitchenStatusRow';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { RecipeCard } from '../../components/RecipeCard';
 import { RescueRowCard } from '../../components/RescueRowCard';
@@ -9,6 +11,8 @@ import { colors, spacing } from '../../constants/theme';
 import { createRecipe, suggestionToRecipeInsert } from '../../lib/api/recipes';
 import { fetchHomeSuggestions } from '../../lib/api/recipeSuggestions';
 import { useAuth } from '../../lib/auth/AuthContext';
+import { getCheckInCandidates } from '../../lib/checkInScoring';
+import { isUncertain } from '../../lib/formatInventory';
 import { useInventory } from '../../lib/inventory/InventoryContext';
 import { getRescueRowEntries } from '../../lib/rescueRow';
 import type { RecipeSuggestion } from '../../types/recipe';
@@ -19,6 +23,8 @@ export default function HomeScreen() {
   const { items } = useInventory();
 
   const rescueRowEntries = useMemo(() => getRescueRowEntries(items), [items]);
+  const checkInCandidates = useMemo(() => getCheckInCandidates(items), [items]);
+  const uncertainCount = useMemo(() => items.filter(isUncertain).length, [items]);
 
   const [suggestions, setSuggestions] = useState<RecipeSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
@@ -76,6 +82,22 @@ export default function HomeScreen() {
         <SousChefEntryBar onPress={() => router.push('/sous-chef')} />
       </View>
 
+      {items.length > 0 && (
+        <View style={styles.statusWrapper}>
+          <KitchenStatusRow
+            totalItems={items.length}
+            needsCheckIn={checkInCandidates.length}
+            uncertain={uncertainCount}
+          />
+        </View>
+      )}
+
+      {checkInCandidates.length > 0 && (
+        <View style={styles.statusWrapper}>
+          <CheckInBanner count={checkInCandidates.length} onPress={() => router.push('/check-in')} />
+        </View>
+      )}
+
       {rescueRowEntries.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Needs attention</Text>
@@ -126,8 +148,7 @@ export default function HomeScreen() {
       </View>
 
       <Text style={styles.comingSoon}>
-        Cooking mode, nutrition, and Kitchen Check-In land in later phases. Head to the Pantry tab
-        to manage your inventory.
+        Nutrition and Search land in later phases. Head to the Pantry tab to manage your inventory.
       </Text>
       <View style={styles.signOut}>
         <PrimaryButton label="Log out" onPress={signOut} variant="secondary" />
@@ -158,6 +179,10 @@ const styles = StyleSheet.create({
   entryBarWrapper: {
     width: '100%',
     marginTop: spacing.md,
+  },
+  statusWrapper: {
+    width: '100%',
+    marginTop: spacing.sm,
   },
   section: {
     width: '100%',
