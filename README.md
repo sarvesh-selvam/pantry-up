@@ -26,6 +26,12 @@ A mobile-first, inventory-aware kitchen app.
   USDA-derived reference data (never LLM-invented), and consumption-
   triggered macro logging (finishing a cook, or eating a leftover) feeding
   Home's compact macro rings and a real Macros tab.
+- **Phase 7: Visual Assistance** — live YouTube technique-video search: an
+  LLM identifies a recipe's single key technique (its only job), a real
+  YouTube Data API call finds demonstrations for it, and the cached result
+  surfaces on the recipe detail screen's "Watch" section, inline on Sous
+  Chef's chat cards, and on Cooking Mode's previously-empty per-step video
+  slots.
 
 ## Stack
 
@@ -49,8 +55,9 @@ app/              Screens and routes (expo-router)
   sous-chef.tsx   Sous Chef chat (modal, reachable from Home or mid-cook,
                    optionally grounded in the recipe being cooked)
   recipe/[id]     Recipe detail screen — ingredients live-matched, "Cook This",
-                   favorite toggle, per-serving nutrition
-  recipe/[id]/cook     Cooking Mode: step-by-step, timers, inline ingredients
+                   favorite toggle, per-serving nutrition, "Watch" section
+  recipe/[id]/cook     Cooking Mode: step-by-step, timers, inline ingredients,
+                        cached technique videos per step
   recipe/[id]/finish   Finish Cooking: servings → mutation proposal →
                         confirm → optional leftovers → consumed-nutrition
                         logging, in that order
@@ -70,8 +77,10 @@ lib/              Supabase client, auth/inventory contexts, API helpers,
                    nutrition calculation service (nutritionCalculation.ts)
                    and consumption logging (nutritionLogging.ts), the
                    inventory mutation proposal engine (cookingMutations.ts),
-                   and Check-In's staleness scoring + response handling
-                   (checkInScoring.ts, checkInResponses.ts)
+                   Check-In's staleness scoring + response handling
+                   (checkInScoring.ts, checkInResponses.ts), the
+                   recipe-videos client (api/youtube.ts) and its dumb
+                   step/technique keyword matcher (matchTechniqueToStep.ts)
   cookbook/CookbookScanContext.tsx   scan-draft handoff, scoped to the
                    Cookbook stack (same pattern as quickAddDraft)
 types/            Hand-written types mirroring the Postgres schema
@@ -83,10 +92,13 @@ supabase/functions/  Edge Functions (Deno):
                       recipe-suggestions — Home's automatic suggestions
                       cookbook-scan — vision-extracts title/ingredients/
                       instructions from a cookbook photo, nothing invented
+                      recipe-videos — identifies a recipe's key technique
+                      (LLM), then a real YouTube Data API search for it
                       _shared/ — normalization pipeline, recipe generation,
                       dietary-restriction enforcement, matching engine (Deno
                       port), pantry context loader, nutrition calculation
-                      (Deno port)
+                      (Deno port), YouTube search wrapper, technique
+                      identification
 ```
 
 ## Prerequisites
@@ -97,6 +109,10 @@ supabase/functions/  Edge Functions (Deno):
   Edge Functions
 - An [Anthropic API key](https://console.anthropic.com/), for Quick Add,
   Receipt Scan, Sous Chef, and recipe suggestions
+- A [YouTube Data API v3](https://console.cloud.google.com/apis/library/youtube.googleapis.com)
+  key (Google Cloud Console — enable the API, then create an API key), for
+  Phase 7's technique video search. The default free quota is small
+  (10,000 units/day, 100 per search call) — see Known limitations
 - Expo Go app on your phone, or an iOS Simulator / Android Emulator
 
 ## Setup
@@ -176,11 +192,13 @@ supabase/functions/  Edge Functions (Deno):
    ```sh
    supabase link --project-ref <your-project-ref>
    supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+   supabase secrets set YOUTUBE_API_KEY=...
    supabase functions deploy quick-add-parse
    supabase functions deploy receipt-scan
    supabase functions deploy sous-chef-chat
    supabase functions deploy recipe-suggestions
    supabase functions deploy cookbook-scan
+   supabase functions deploy recipe-videos
    ```
 
    See [Edge Functions](#edge-functions) below for what each one does.
@@ -196,14 +214,15 @@ code with Expo Go.
 
 ## Edge Functions
 
-All five live under `supabase/functions/`, sharing common modules in
+All six live under `supabase/functions/`, sharing common modules in
 `supabase/functions/_shared/`. All require `SUPABASE_URL` /
 `SUPABASE_ANON_KEY` (auto-injected by the Edge Runtime) and
-`ANTHROPIC_API_KEY` (set via `supabase secrets set`, above).
+`ANTHROPIC_API_KEY` (set via `supabase secrets set`, above);
+`recipe-videos` additionally requires `YOUTUBE_API_KEY`.
 `supabase/functions/deno.lock` pins the resolved `npm:`/`jsr:` dependency
 versions for reproducible deploys — commit it like a regular lockfile.
 
-None of the five write directly to `inventory_items`, `recipes`,
+None of the six write directly to `inventory_items`, `recipes`,
 `cook_events`, or `daily_nutrition` — every one only returns suggestions or
 computed values; the client is the only thing that ever persists them, and
 only after the user reviews/confirms or (for macro logging) actually
@@ -296,6 +315,45 @@ every generated recipe) and into manual/scanned saves on the client — but
 computes and stores a per-serving nutrition estimate on the recipe itself;
 only a confirmed consumption event (Finish Cooking, or eating a leftover —
 see Known limitations) logs anything to `daily_nutrition`.
+
+**Phase 7 — live technique video search** (shares
+`_shared/techniqueIdentification.ts` and `_shared/youtubeSearch.ts`).
+
+- **`recipe-videos`** — input `{ recipe: { title, ingredients: string[],
+  instructions: string[] } }` (the same shape `sous-chef-chat`'s
+  `recipeContext` already uses). Two steps, in order: (1) one small,
+  text-only `claude-opus-5` call identifies the recipe's single most
+  important or non-obvious technique — its only job; (2) a real YouTube
+  Data API v3 `search` call runs against `"<technique> technique"`, and
+  every field in the response (`video_id`, `title`, `channel_title`,
+  `thumbnail_url`, `published_at`) comes straight from that API response —
+  never invented, never filled in by the model. Returns `{ technique,
+  search_query, retrieved_at, results }`. Like every other function here,
+  it never writes to `recipes`; the client persists the result after
+  getting it back.
+
+**The LLM only ever decides what to search for — it never touches the
+actual video data.** This is the same LLM/deterministic split the app uses
+everywhere else (nutrition math, recipe-to-inventory matching, expiry
+estimation): the model's output feeds into a real, independently-verifiable
+system (here, a live API call) rather than being trusted as the final
+answer. A genuinely empty `results` array (the search ran, found nothing)
+is treated differently from a thrown error (the search couldn't run at
+all — bad key, quota exceeded, network failure) — see
+`_shared/youtubeSearch.ts`'s header comment.
+
+**Video lookups aren't triggered by every generated recipe — quota, not
+laziness.** The YouTube Data API's default free quota is small (10,000
+units/day, 100 per search call — effectively ~100 searches/day). Since
+`recipe-suggestions` generates 3-5 candidates per Home visit that are
+mostly never saved, eagerly searching for all of them would exhaust that
+quota almost immediately for an active user. Instead: Sous Chef (one
+user-requested recipe at a time) fetches client-side right after the reply
+lands; Home's suggestion strip fetches nothing; every recipe (including
+Home suggestions, once saved) gets its lookup lazily, once, the first time
+its detail screen is opened, then cached on `recipes.youtube_metadata` — no
+new migration needed, the column already existed from Phase 3's schema
+(`db/migrations/0008_recipes.sql`), just typed as `unknown` until now.
 
 ## What's implemented
 
@@ -433,6 +491,27 @@ see Known limitations) logs anything to `daily_nutrition`.
   (`components/MacroRingRow.tsx`) for the day's logged totals, plus simple
   day-back navigation; Home gained a compact version of the same rings at
   the top of the screen, both reading from the same `daily_nutrition` table
+
+**Phase 7**
+- Live YouTube technique search (`recipe-videos`): an LLM identifies a
+  recipe's key technique, a real YouTube Data API call searches for it —
+  see Edge Functions above for the full LLM/real-data boundary and why
+  results aren't fetched eagerly for every generated candidate
+- Recipe detail's "Watch" section (`app/recipe/[id].tsx`): lazily fetches
+  and caches results the first time a saved recipe is opened
+  (`recipes.youtube_metadata`), with a manual refresh action and a muted
+  "no videos found yet" state instead of an error when there's nothing to
+  show
+- Cooking Mode's previously-empty video slots (`TechniqueVideoSlot.tsx`)
+  now render the recipe's cached videos — relabeled ("This step: ...") when
+  a dumb keyword check (`lib/matchTechniqueToStep.ts`) thinks the current
+  step matches the recipe's technique, otherwise still shown as a
+  persistent small section per spec rather than forcing per-step precision
+- Sous Chef's inline chat recipe card (`RecipeCard`, full variant) shows a
+  compact 1-2 thumbnail preview once the client-side lookup for that one
+  generated recipe resolves — Home's compact card variant and Cookbook's
+  grid don't show video previews (not required by spec, and consistent
+  with the quota-conscious "don't fetch for unsaved candidates" decision)
 
 ## Known limitations
 
@@ -575,3 +654,32 @@ see Known limitations) logs anything to `daily_nutrition`.
   personalization was scoped), so a fill percentage would either be
   meaningless or silently imply a target the app never actually set. No
   new dependency (`react-native-svg`) was added for this reason.
+- YouTube technique video results are only fetched eagerly for Sous
+  Chef's one inline chat card per turn and lazily on first recipe-detail
+  view — never for Home's 3-5 suggestion candidates, which mostly go
+  unsaved. This is a deliberate quota-driven scope cut (the YouTube Data
+  API's default free tier is ~100 searches/day), not an oversight — see
+  the Edge Functions section above for the full reasoning. A heavy user
+  opening many new recipe detail screens in one day can still exhaust the
+  quota; `recipe-videos` surfaces that as a thrown error, which the client
+  treats the same as "no results" (a muted empty state, never a scary
+  error banner) per spec, so a quota exhaustion is currently
+  indistinguishable in the UI from a genuinely fruitless search.
+- Cooking Mode's per-step technique match (`lib/matchTechniqueToStep.ts`)
+  is a dumb keyword-overlap check, not real NLP — same "deliberately not
+  smarter than that" philosophy as `matchIngredientsToStep.ts`. Most steps
+  won't obviously match the recipe's identified technique phrase; when
+  none do, the recipe's cached videos still show as a persistent small
+  section throughout Cooking Mode rather than attaching to a specific
+  step, which is what spec explicitly allows as the fallback.
+- The single technique identified per recipe (`_shared/
+  techniqueIdentification.ts`) is one LLM judgment call, not validated
+  against what a cook would actually consider "the" key technique — a
+  recipe with two equally important techniques only gets videos for
+  whichever one the model picked. No per-technique or per-step video
+  identification was built (out of scope, and would multiply the API
+  quota cost described above).
+- Video results are cached indefinitely once fetched (manual refresh is
+  the only way to update them) — there's no automatic staleness check
+  (e.g. re-searching after N months), so a very old cached result is never
+  proactively refreshed on its own.
