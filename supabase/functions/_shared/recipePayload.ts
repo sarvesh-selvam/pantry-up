@@ -5,6 +5,7 @@
 import { matchRecipeToInventory, type MatchInventoryItem } from './recipeMatching.ts';
 import type { GeneratedRecipe } from './recipeGeneration.ts';
 import type { RecipeNutrition } from './nutritionCalculation.ts';
+import type { RecipeYoutubeMetadata } from './youtubeSearch.ts';
 
 export interface RecipeSuggestionPayload {
   title: string;
@@ -21,6 +22,10 @@ export interface RecipeSuggestionPayload {
   why_this_works: string;
   rescued_ingredient_names: string[];
   nutrition: RecipeNutrition | null;
+  /** Always null straight out of generation — see recipe-videos/index.ts's
+   * header comment for why this isn't fetched eagerly for every generated
+   * candidate (quota cost vs. suggestions nobody saves). */
+  youtube_metadata: RecipeYoutubeMetadata | null;
 }
 
 export function buildRecipeSuggestionPayload(
@@ -43,5 +48,6 @@ export function buildRecipeSuggestionPayload(
     why_this_works: recipe.why_this_works,
     rescued_ingredient_names: recipe.rescued_ingredient_names,
     nutrition: recipe.nutrition,
+    youtube_metadata: null,
   };
 }

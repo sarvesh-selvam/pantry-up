@@ -54,6 +54,31 @@ export type RecipeNutrition = {
   total_ingredient_count: number;
 };
 
+/** One real YouTube search result — every field comes straight from the
+ * YouTube Data API response, never invented by the LLM. See
+ * supabase/functions/_shared/youtubeSearch.ts. */
+export type YoutubeVideoResult = {
+  video_id: string;
+  title: string;
+  channel_title: string;
+  video_url: string;
+  thumbnail_url: string;
+  published_at: string;
+};
+
+/** Cached on a recipe once its key technique has been identified (LLM,
+ * text-only) and searched for (real YouTube Data API call) — see
+ * supabase/functions/recipe-videos/. `technique` is the LLM's pick of the
+ * recipe's single most important/non-obvious technique; `results` is
+ * whatever the live search actually returned, including an empty array
+ * when nothing matched — that's a genuine "no results," not missing data. */
+export type RecipeYoutubeMetadata = {
+  technique: string;
+  search_query: string;
+  retrieved_at: string;
+  results: YoutubeVideoResult[];
+};
+
 export type GeneratedContext = {
   /** The free-text request/constraints this recipe was generated from. */
   constraints: string;
@@ -79,7 +104,7 @@ export type Recipe = {
   ingredients: RecipeIngredient[];
   instructions: string[];
   nutrition: RecipeNutrition | null;
-  youtube_metadata: unknown | null;
+  youtube_metadata: RecipeYoutubeMetadata | null;
   tags: string[];
   is_favorite: boolean;
   generated_context: GeneratedContext | null;
@@ -109,6 +134,14 @@ export type RecipeSuggestion = {
   why_this_works: string;
   rescued_ingredient_names: string[];
   nutrition: RecipeNutrition | null;
+  /** Always null straight out of generation (Sous Chef/Home suggestions) —
+   * see recipe-videos' header comment for why this isn't fetched eagerly
+   * for every generated candidate. Sous Chef's chat screen fetches it
+   * client-side for the one recipe it actually renders, right after the
+   * reply comes back; Home's suggestion strip doesn't fetch it at all
+   * (unsaved candidates, several per visit) — it gets filled in lazily the
+   * first time a saved recipe's detail screen is opened. */
+  youtube_metadata: RecipeYoutubeMetadata | null;
 };
 
 export type RecipeMatchResult = {
