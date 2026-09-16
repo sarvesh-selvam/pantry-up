@@ -75,6 +75,24 @@ export type RecipeInsert = Omit<Recipe, 'id' | 'user_id' | 'created_at' | 'updat
 
 export type RecipeDbInsert = RecipeInsert & Pick<Recipe, 'user_id'>;
 
+/** What both Sous Chef and Home's suggestions return per recipe — already
+ * matched against live inventory, ready to render as a card. */
+export type RecipeSuggestion = {
+  title: string;
+  description: string | null;
+  cuisine: string | null;
+  servings: number | null;
+  prep_time: number | null;
+  cook_time: number | null;
+  instructions: string[];
+  tags: string[];
+  ingredients: RecipeIngredient[];
+  pantry_coverage_label: string;
+  missing_ingredient_count: number;
+  why_this_works: string;
+  rescued_ingredient_names: string[];
+};
+
 export type RecipeMatchResult = {
   ingredients: RecipeIngredient[]; // inventory_match freshly recomputed
   pantryCoverageLabel: string; // "X of Y ingredients"
