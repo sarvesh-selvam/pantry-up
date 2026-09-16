@@ -8,6 +8,7 @@ import { TechniqueVideoSlot } from '../../../components/TechniqueVideoSlot';
 import { colors, radii, spacing } from '../../../constants/theme';
 import { fetchRecipeById } from '../../../lib/api/recipes';
 import { findIngredientsInStep } from '../../../lib/matchIngredientsToStep';
+import { stepMatchesTechnique } from '../../../lib/matchTechniqueToStep';
 import { extractStepDurationSeconds } from '../../../lib/parseStepDuration';
 import type { Recipe } from '../../../types/recipe';
 
@@ -41,6 +42,11 @@ export default function CookingModeScreen() {
   const durationSeconds = useMemo(() => (stepText ? extractStepDurationSeconds(stepText) : null), [stepText]);
   const stepIngredients = useMemo(
     () => (recipe && stepText ? findIngredientsInStep(stepText, recipe.ingredients) : []),
+    [recipe, stepText]
+  );
+  const stepMatchesRecipeTechnique = useMemo(
+    () =>
+      recipe?.youtube_metadata && stepText ? stepMatchesTechnique(stepText, recipe.youtube_metadata.technique) : false,
     [recipe, stepText]
   );
 
@@ -110,7 +116,7 @@ export default function CookingModeScreen() {
 
         {durationSeconds != null && <StepTimer durationSeconds={durationSeconds} />}
 
-        <TechniqueVideoSlot />
+        <TechniqueVideoSlot youtubeMetadata={recipe.youtube_metadata} stepMatched={stepMatchesRecipeTechnique} />
       </ScrollView>
 
       <View style={styles.bottomBar}>
