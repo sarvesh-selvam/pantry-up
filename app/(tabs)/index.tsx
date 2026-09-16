@@ -1,6 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CheckInBanner } from '../../components/CheckInBanner';
 import { KitchenStatusRow } from '../../components/KitchenStatusRow';
 import { MacroRingRow } from '../../components/MacroRingRow';
@@ -11,6 +12,7 @@ import { SousChefEntryBar } from '../../components/SousChefEntryBar';
 import { colors, spacing } from '../../constants/theme';
 import { fetchDailyNutrition, todayLocalDate } from '../../lib/api/dailyNutrition';
 import { createRecipe, suggestionToRecipeInsert } from '../../lib/api/recipes';
+import { logRecommendationEvent } from '../../lib/api/recommendationEvents';
 import { fetchHomeSuggestions } from '../../lib/api/recipeSuggestions';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { getCheckInCandidates } from '../../lib/checkInScoring';
@@ -61,6 +63,14 @@ export default function HomeScreen() {
     fetchHomeSuggestions()
       .then((recipes) => {
         if (!cancelled) setSuggestions(recipes);
+        // Best-effort, fire-and-forget — a logging failure shouldn't block
+        // suggestions from rendering. See db/migrations/0017 for why this
+        // is the one Phase 8 signal that needs its own event log.
+        if (session) {
+          for (const recipe of recipes) {
+            logRecommendationEvent(session.user.id, recipe.title, recipe.cuisine, 'shown').catch(() => {});
+          }
+        }
       })
       .catch((err) => {
         if (!cancelled) setSuggestionsError(err instanceof Error ? err.message : 'Failed to load suggestions');
@@ -85,6 +95,7 @@ export default function HomeScreen() {
         session.user.id,
         suggestionToRecipeInsert(suggestion, 'Home suggestion (no specific request)')
       );
+      logRecommendationEvent(session.user.id, suggestion.title, suggestion.cuisine, 'tapped').catch(() => {});
       router.push(`/recipe/${saved.id}`);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save recipe');
@@ -95,8 +106,20 @@ export default function HomeScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Welcome to PantryUp</Text>
-      <Text style={styles.subtitle}>{session?.user.email}</Text>
+      <View style={styles.titleRow}>
+        <View>
+          <Text style={styles.title}>Welcome to PantryUp</Text>
+          <Text style={styles.subtitle}>{session?.user.email}</Text>
+        </View>
+        <Pressable
+          onPress={() => router.push('/settings')}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+        >
+          <Ionicons name="settings-outline" size={22} color={colors.textMuted} />
+        </Pressable>
+      </View>
 
       {/* Section A: compact daily macro summary — a glance, not the full
           Macros tab experience. Always shown (even at all-zero) so Home has
@@ -200,6 +223,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
     gap: spacing.sm,
     alignItems: 'center',
+  },
+  titleRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
   },
   title: {
     fontSize: 22,

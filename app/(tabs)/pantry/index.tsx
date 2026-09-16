@@ -18,6 +18,7 @@ import {
   STORAGE_LOCATION_LABELS,
   STORAGE_LOCATION_ORDER,
 } from '../../../lib/formatInventory';
+import { logItemDisposition } from '../../../lib/api/itemDispositions';
 import { useInventory } from '../../../lib/inventory/InventoryContext';
 import { logLeftoverConsumption } from '../../../lib/nutritionLogging';
 import type { InventoryItem, StorageLocation } from '../../../types/database';
@@ -74,6 +75,11 @@ export default function PantryListScreen() {
           if (!session) return;
           try {
             const { logged } = await logLeftoverConsumption(item, session.user.id);
+            try {
+              await logItemDisposition(session.user.id, item, 'consumed', 'pantry_ate');
+            } catch (err) {
+              console.warn('Failed to log item disposition', err);
+            }
             await removeItem(item.id);
             if (!logged) {
               Alert.alert(

@@ -4,6 +4,7 @@
 // writes immediately via the same InventoryContext methods every other
 // screen uses (no parallel mutation path to drift out of sync).
 
+import { logItemDisposition } from './api/itemDispositions';
 import { logLeftoverConsumption } from './nutritionLogging';
 import type { InventoryItem, InventoryItemUpdate, QuantityState } from '../types/database';
 
@@ -34,9 +35,17 @@ interface CheckInActions {
  * swallowed (console.warn) rather than blocking the item's removal, since
  * nutrition logging is a secondary enhancement to a primary action the
  * user has already decided on by tapping the button.
+ *
+ * "Gone" / "Ate It" / "Discarded" also each log a disposition (Phase 8,
+ * lib/api/itemDispositions.ts) — the same best-effort, never-block-the-
+ * real-action treatment as nutrition logging above. "Gone" logs 'unknown'
+ * rather than guessing 'discarded': the user is confirming the item isn't
+ * there anymore, not saying why, and that ambiguity shouldn't be resolved
+ * by a guess (see the app's standing "no data beats an invented number"
+ * principle).
  */
 export async function applyCheckInResponse(
-  item: Pick<InventoryItem, 'id' | 'source_recipe_id' | 'quantity_value'>,
+  item: Pick<InventoryItem, 'id' | 'source_recipe_id' | 'quantity_value' | 'canonical_food_id' | 'display_name'>,
   response: CheckInResponse,
   actions: CheckInActions,
   userId: string
@@ -45,6 +54,11 @@ export async function applyCheckInResponse(
 
   if (response.kind === 'existence') {
     if (response.value === 'gone') {
+      try {
+        await logItemDisposition(userId, item, 'unknown', 'check_in_existence_gone');
+      } catch (err) {
+        console.warn('Failed to log item disposition', err);
+      }
       await actions.removeItem(item.id);
       return;
     }
@@ -63,10 +77,20 @@ export async function applyCheckInResponse(
       } catch (err) {
         console.warn('Failed to log nutrition for eaten leftover', err);
       }
+      try {
+        await logItemDisposition(userId, item, 'consumed', 'check_in_leftover_ate');
+      } catch (err) {
+        console.warn('Failed to log item disposition', err);
+      }
       await actions.removeItem(item.id);
       return;
     }
     if (response.value === 'discarded') {
+      try {
+        await logItemDisposition(userId, item, 'discarded', 'check_in_leftover_discarded');
+      } catch (err) {
+        console.warn('Failed to log item disposition', err);
+      }
       await actions.removeItem(item.id);
       return;
     }
