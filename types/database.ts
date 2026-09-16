@@ -2,6 +2,7 @@
 // If the schema changes, update these alongside the migration.
 
 import type { Recipe, RecipeDbInsert } from './recipe';
+import type { CookEvent, CookEventDbInsert } from './cookEvent';
 
 export type FoodCategory =
   | 'produce'
@@ -43,7 +44,8 @@ export type InventorySource =
   | 'manual'
   | 'quick_add'
   | 'receipt_scan'
-  | 'pantry_snapshot';
+  | 'pantry_snapshot'
+  | 'cooking';
 
 export type VerificationStatus =
   | 'confirmed'
@@ -177,6 +179,12 @@ export interface Database {
         Row: UserPreferences;
         Insert: Partial<UserPreferences> & Pick<UserPreferences, 'user_id'>;
         Update: Partial<UserPreferences>;
+        Relationships: [];
+      };
+      cook_events: {
+        Row: CookEvent;
+        Insert: CookEventDbInsert;
+        Update: Partial<Omit<CookEvent, 'id' | 'user_id' | 'created_at'>>;
         Relationships: [];
       };
     };
