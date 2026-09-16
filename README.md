@@ -16,6 +16,10 @@ A mobile-first, inventory-aware kitchen app.
   confirm-before-mutate inventory deduction flow, leftovers, and cook
   History. This is the first phase where the full core loop (Capture →
   Understand → Rescue → Decide → Cook → Reconcile) works end to end.
+- **Phase 5: Reconciliation** — Kitchen Check-In: a deterministic
+  staleness/uncertainty scoring function surfaces a small, capped batch of
+  genuinely-in-doubt items, reviewed via a fast tap-through card flow that
+  repairs pantry drift without ever asking about the whole pantry.
 
 ## Stack
 
@@ -39,14 +43,19 @@ app/              Screens and routes (expo-router)
   recipe/[id]/cook     Cooking Mode: step-by-step, timers, inline ingredients
   recipe/[id]/finish   Finish Cooking: servings → mutation proposal →
                         confirm → optional leftovers, in that order
+  check-in.tsx    Kitchen Check-In (modal, reachable only from Home's
+                   entry banner, only when something needs review)
 components/       Shared UI components (incl. RecipeCard, reused by Sous
                    Chef's inline cards and Home's suggestion cards;
-                   StepTimer and TechniqueVideoSlot for Cooking Mode)
+                   StepTimer and TechniqueVideoSlot for Cooking Mode;
+                   CheckInCard/CheckInBanner/KitchenStatusRow for Check-In)
 constants/        Design tokens (colors, spacing)
 lib/              Supabase client, auth/inventory contexts, API helpers,
                    the Quick Add parser, the receipt scanner, the
-                   client-side recipe-to-inventory matching engine, and the
-                   inventory mutation proposal engine (cookingMutations.ts)
+                   client-side recipe-to-inventory matching engine, the
+                   inventory mutation proposal engine (cookingMutations.ts),
+                   and Check-In's staleness scoring + response handling
+                   (checkInScoring.ts, checkInResponses.ts)
 types/            Hand-written types mirroring the Postgres schema
 db/migrations/    SQL migrations, applied in filename order
 supabase/functions/  Edge Functions (Deno):
@@ -278,10 +287,39 @@ shopping list feature is a later phase.
 - Every completed cook creates a `cook_events` row (servings, applied
   mutations, any leftovers created) — viewable in a real History list,
   which now lives in the Search tab (see Known limitations) as groundwork
-  for Phase 5's Global Search
+  for a future Global Search phase
 - Verified no regression: opening, generating, and saving a recipe still
   never touch inventory — only a confirmed "Update Pantry" tap does (see
   Known limitations for how this was checked)
+
+**Phase 5**
+- Deterministic staleness/uncertainty scoring (`lib/checkInScoring.ts`) —
+  no new migrations this phase; every signal it uses (`verification_status`,
+  `last_verified_at`, `expiry_estimated`/`expiry_user_provided`,
+  `preparation_state`, `quantity_confidence`) already existed. Most items
+  score 0 and never surface — see Known limitations for the exact
+  thresholds and why they're centralized in one place
+- `app/check-in.tsx` — a fast, tap-through card flow (not a form): one item
+  at a time, response buttons that apply immediately (tapping a response
+  *is* the confirmation, unlike Cooking Mode's separate propose/confirm
+  split), capped to a small batch per session
+  (`CHECK_IN_THRESHOLDS.batchSize`)
+- Three prompt variants chosen per item by a small decision function
+  (`determinePromptType`, not hardcoded per item): existence (Gone / Still
+  Here / Frozen), approximate quantity (Empty / Low / Half / Mostly Full /
+  Full), and leftover-specific (Discarded / Ate It / Still Here)
+- "Gone" / "Discarded" / "Ate It" delete the item outright — the same
+  pattern Phase 4's cooking mutations use for fully-consumed items, so
+  there's one consistent answer to "how does an item stop being active,"
+  not two. Every other response confirms in place (`verification_status:
+  'confirmed'`, fresh `last_verified_at`), which is what clears the orange
+  "?" everywhere — Pantry, Rescue Row, recipe matching — since they all
+  derive from the same `useInventory().items` state Check-In writes
+  through the same `editItem`/`removeItem` methods every other screen uses
+- Home gained a compact `KitchenStatusRow` (item count / needing check-in /
+  uncertain — three numbers, not a dashboard) and a `CheckInBanner` that's
+  simply absent, not a zero-state, when nothing needs review. Check-In
+  never auto-launches — the banner is the only entry point, always tapped
 
 Cookbook and Macros are still placeholder "Coming soon" screens — their
 functionality lands in later phases.
@@ -327,7 +365,8 @@ functionality lands in later phases.
   explicitly ("Search across your cooking history lands in a later
   phase"), so it doesn't read as finished Search functionality. Chosen as
   the architecturally simplest home for it now, and it's real, queryable
-  `cook_events` data that Phase 5's Global Search will build on directly.
+  `cook_events` data that a future Global Search phase can build on
+  directly (Phase 5 turned out to be Kitchen Check-In, not Search).
 - No regression check for "generate/save/open a recipe never touches
   inventory" is a manual code-path audit (`grep` for every
   `editItem`/`removeItem`/`addItem` call site), not an automated test —
@@ -352,3 +391,32 @@ functionality lands in later phases.
 - No swipe gestures in Cooking Mode — Previous/Next are buttons only,
   consistent with the rest of the app's approach to gesture-vs-button
   tradeoffs (see Pantry's delete-by-button instead of swipe, Phase 1).
+- Check-In is tap-button-based, not swipe-based, for the same reason
+  (spec explicitly allowed either). No gesture library work was needed.
+- Check-In's scoring thresholds (`lib/checkInScoring.ts`'s
+  `CHECK_IN_THRESHOLDS`) are reasonable starting guesses, not tuned against
+  real usage — `staleDays: 4`, `leftoverStaleDays: 2`,
+  `expiryProximityDays: 3`, `minimumScore: 30`, `batchSize: 6`. They're
+  centralized in one exported constant specifically so they're easy to
+  retune later without touching the scoring logic itself.
+- A Check-In session snapshots its batch once at screen mount
+  (`useState(() => getCheckInBatch(items))`) rather than recomputing live —
+  intentional (a session shouldn't reshuffle under the user mid-review),
+  but it does mean an item that becomes newly stale *during* an active
+  session won't appear until the next session.
+- State-mode staleness scoring and Cooking Mode's state-mode mutations
+  (Phase 4) both step through the same `QuantityState` progression but
+  don't share a threshold/weighting model — Check-In's "how stale before
+  flagging" and cooking's "how far to step down" are independent concerns
+  answered independently; no code duplication issue, just worth knowing
+  they're not the same knob.
+- Section 5's verification (items resolved via Check-In correctly drop out
+  of Rescue Row/matching/uncertainty badges) was a manual code-path
+  read-through, not a runtime test — same "no test suite yet, no
+  device/simulator in this environment" constraint as every prior phase's
+  regression checks. The claim rests on all three consumers deriving
+  reactively from the same `useInventory().items` state that Check-In
+  mutates through the exact same `editItem`/`removeItem` methods every
+  other screen already uses — there is no parallel code path that could
+  diverge, which is a stronger guarantee than "we tested it once," but
+  it's still not the same as having actually run it.
