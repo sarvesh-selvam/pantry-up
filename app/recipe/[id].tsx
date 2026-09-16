@@ -1,8 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../constants/theme';
-import { fetchRecipeById } from '../../lib/api/recipes';
+import { fetchRecipeById, setRecipeFavorite } from '../../lib/api/recipes';
 import { useInventory } from '../../lib/inventory/InventoryContext';
 import { matchRecipeToInventory } from '../../lib/recipeMatching';
 import type { IngredientMatchStatus, Recipe, RecipeIngredient } from '../../types/recipe';
@@ -55,6 +56,17 @@ export default function RecipeDetailScreen() {
     return groups;
   }, [recipe, items]);
 
+  async function toggleFavorite() {
+    if (!recipe) return;
+    const nextValue = !recipe.is_favorite;
+    setRecipe({ ...recipe, is_favorite: nextValue });
+    try {
+      await setRecipeFavorite(recipe.id, nextValue);
+    } catch {
+      setRecipe((prev) => (prev ? { ...prev, is_favorite: !nextValue } : prev));
+    }
+  }
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -75,7 +87,21 @@ export default function RecipeDetailScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.title}>{recipe.title}</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>{recipe.title}</Text>
+        <Pressable
+          onPress={toggleFavorite}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={recipe.is_favorite ? 'Unfavorite' : 'Favorite'}
+        >
+          <Ionicons
+            name={recipe.is_favorite ? 'star' : 'star-outline'}
+            size={26}
+            color={recipe.is_favorite ? colors.uncertain : colors.textMuted}
+          />
+        </Pressable>
+      </View>
       {recipe.description && <Text style={styles.description}>{recipe.description}</Text>}
 
       <View style={styles.metaRow}>
@@ -88,6 +114,25 @@ export default function RecipeDetailScreen() {
         <View style={styles.whyBox}>
           <Text style={styles.whyLabel}>Why this works</Text>
           <Text style={styles.whyText}>{recipe.generated_context.why_this_works}</Text>
+        </View>
+      )}
+
+      {recipe.nutrition && (
+        <View style={styles.nutritionBox}>
+          <Text style={styles.sectionTitle}>Nutrition (per serving)</Text>
+          <View style={styles.nutritionRow}>
+            <NutritionStat label="Calories" value={Math.round(recipe.nutrition.calories_per_serving)} />
+            <NutritionStat label="Protein" value={`${Math.round(recipe.nutrition.protein_g_per_serving)}g`} />
+            <NutritionStat label="Carbs" value={`${Math.round(recipe.nutrition.carbs_g_per_serving)}g`} />
+            <NutritionStat label="Fat" value={`${Math.round(recipe.nutrition.fat_g_per_serving)}g`} />
+          </View>
+          {recipe.nutrition.is_partial && (
+            <Text style={styles.nutritionPartialNote}>
+              Nutrition estimate — {recipe.nutrition.total_ingredient_count - recipe.nutrition.matched_ingredient_count}{' '}
+              of {recipe.nutrition.total_ingredient_count} ingredients weren't matched to nutrition data, so this is
+              likely an undercount.
+            </Text>
+          )}
         </View>
       )}
 
@@ -139,6 +184,15 @@ export default function RecipeDetailScreen() {
   );
 }
 
+function NutritionStat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <View style={styles.nutritionStat}>
+      <Text style={styles.nutritionValue}>{value}</Text>
+      <Text style={styles.nutritionLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   content: {
     padding: spacing.md,
@@ -157,7 +211,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     textAlign: 'center',
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
   title: {
+    flex: 1,
     fontSize: 22,
     fontWeight: '700',
     color: colors.text,
@@ -204,6 +265,37 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     marginTop: spacing.sm,
+  },
+  nutritionBox: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  nutritionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  nutritionStat: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  nutritionValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  nutritionLabel: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  nutritionPartialNote: {
+    fontSize: 12,
+    color: colors.uncertain,
   },
   ingredientGroup: {
     gap: 2,

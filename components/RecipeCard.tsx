@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { colors, radii, spacing } from '../constants/theme';
 import type { RecipeSuggestion } from '../types/recipe';
 
@@ -9,6 +9,9 @@ interface Props {
   /** Compact = Home's horizontal-scroll suggestion cards; full = the richer
    * card Sous Chef renders inline in chat. */
   variant?: 'compact' | 'full';
+  /** Overrides cardCompact's fixed 200px width — used by Cookbook's
+   * 2-column grid, which needs cards to fill their column instead. */
+  style?: StyleProp<ViewStyle>;
 }
 
 function totalTimeLabel(prepTime: number | null, cookTime: number | null): string | null {
@@ -16,7 +19,7 @@ function totalTimeLabel(prepTime: number | null, cookTime: number | null): strin
   return total > 0 ? `${total} min` : null;
 }
 
-export function RecipeCard({ recipe, onPress, variant = 'full' }: Props) {
+export function RecipeCard({ recipe, onPress, variant = 'full', style }: Props) {
   const timeLabel = totalTimeLabel(recipe.prep_time, recipe.cook_time);
   const isCompact = variant === 'compact';
 
@@ -26,6 +29,7 @@ export function RecipeCard({ recipe, onPress, variant = 'full' }: Props) {
         styles.card,
         isCompact && styles.cardCompact,
         pressed && styles.cardPressed,
+        style,
       ]}
       onPress={onPress}
       accessibilityRole="button"
