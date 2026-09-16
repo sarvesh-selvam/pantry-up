@@ -9,7 +9,8 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { getUserSupabaseClient } from '../_shared/supabaseClient.ts';
 import { loadPantryContext } from '../_shared/pantryContext.ts';
 import { generateRecipes } from '../_shared/recipeGeneration.ts';
-import { buildRecipeSuggestionPayload } from '../_shared/recipePayload.ts';
+import { buildRecipeSuggestionPayload, buildScoringContext } from '../_shared/recipePayload.ts';
+import { findDietaryViolations } from '../_shared/dietaryRestrictions.ts';
 import type { MatchInventoryItem } from '../_shared/recipeMatching.ts';
 
 const SUGGESTION_COUNT = 4;
@@ -50,14 +51,34 @@ Deno.serve(async (req: Request) => {
         dietaryRestrictions: ctx.dietaryRestrictions,
         cuisineWeights: ctx.cuisineWeights,
         skillLevel: ctx.skillLevel,
+        equipment: ctx.equipment,
         canonicalFoods: ctx.canonicalFoods,
         nutritionData: ctx.nutritionData,
       },
       SUGGESTION_COUNT
     );
 
+    // Defensive re-check: generateRecipes already only returns compliant
+    // recipes (findDietaryViolations runs inside its own retry loop), so
+    // this should always be a no-op — but ranking must never be the thing
+    // that lets a violation slip through, so it's verified again right
+    // here rather than trusted implicitly. See recipePayload.ts's header
+    // comment.
+    const compliantRecipes = recipes.filter(
+      (recipe) =>
+        findDietaryViolations(recipe.ingredients.map((ing) => ing.display_name), ctx.dietaryRestrictions).length === 0
+    );
+    if (compliantRecipes.length < recipes.length) {
+      console.error(
+        `recipe-suggestions: ${recipes.length - compliantRecipes.length} recipe(s) failed the defensive dietary re-check after generateRecipes already filtered — this should not happen`
+      );
+    }
+
     const inventoryItems = ctx.inventoryItems as unknown as MatchInventoryItem[];
-    const suggestions = recipes.map((recipe) => buildRecipeSuggestionPayload(recipe, inventoryItems));
+    const scoringCtx = buildScoringContext(ctx, null);
+    const suggestions = compliantRecipes
+      .map((recipe) => buildRecipeSuggestionPayload(recipe, inventoryItems, scoringCtx))
+      .sort((a, b) => b.score - a.score);
 
     return jsonResponse({ recipes: suggestions });
   } catch (err) {

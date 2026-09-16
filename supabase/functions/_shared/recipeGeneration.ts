@@ -18,6 +18,7 @@ import { CLAUDE_MODEL, extractResponseText, getAnthropicClient } from './anthrop
 import { buildCanonicalFoodsReference, type CanonicalFoodRef } from './matching.ts';
 import { findDietaryViolations, splitEnforceableRestrictions } from './dietaryRestrictions.ts';
 import { computeRecipeNutrition, type NutritionDataRow, type RecipeNutrition } from './nutritionCalculation.ts';
+import { EQUIPMENT_KEYS, VALID_EQUIPMENT_KEYS } from './equipmentOptions.ts';
 
 const MAX_GENERATION_ATTEMPTS = 3;
 
@@ -33,6 +34,13 @@ export interface GenerationContext {
   dietaryRestrictions: string[];
   cuisineWeights: Record<string, number>;
   skillLevel: string;
+  /** The user's OWN equipment (what they have) — previously fetched by
+   * pantryContext.ts but silently dropped before reaching here (Phase 8
+   * fix). Threaded into the prompt so the model can lean toward recipes
+   * that don't need equipment the user doesn't have, though the real
+   * enforcement of "does this recipe need equipment I have" is
+   * recommendationScoring.ts's equipment_match term, not the prompt. */
+  equipment: string[];
   canonicalFoods: CanonicalFoodRef[];
   nutritionData: NutritionDataRow[];
 }
@@ -57,6 +65,11 @@ export interface GeneratedRecipe {
   tags: string[];
   why_this_works: string;
   rescued_ingredient_names: string[];
+  /** Controlled-vocabulary guess (EQUIPMENT_KEYS) of what equipment this
+   * recipe needs, heuristically inferred by the model — validated against
+   * that same fixed list in parseGeneratedRecipes below, so anything
+   * unrecognized is dropped rather than trusted as free text. */
+  equipment_needed: string[];
   /** Deterministic — computed from nutrition_data after generation, never
    * asked of or invented by the model. See computeNutritionForRecipes below. */
   nutrition: RecipeNutrition | null;
@@ -84,6 +97,7 @@ ${ctx.rescueItemNames.length ? ctx.rescueItemNames.join(', ') : '(none right now
 
 Cuisine preference (soft signal only, weights 0-1): ${JSON.stringify(ctx.cuisineWeights)}
 Cook's skill level: ${ctx.skillLevel}
+Equipment the user has: ${ctx.equipment.length ? ctx.equipment.join(', ') : '(not stated — assume only basic stovetop/oven)'}. Prefer recipes usable with what they have.
 
 Reference foods (match each ingredient to one of these by id when it's a clear match; use null if none fits well):
 ${buildCanonicalFoodsReference(ctx.canonicalFoods)}
@@ -107,7 +121,8 @@ Each array element must have exactly these fields:
   "instructions": string[],     // ordered steps
   "tags": string[],
   "why_this_works": string,     // 1-3 sentences: what pantry/rescue items it uses and why it fits the request — never just "AI recommended"
-  "rescued_ingredient_names": string[]  // which of the rescue items above this recipe actually uses, if any
+  "rescued_ingredient_names": string[],  // which of the rescue items above this recipe actually uses, if any
+  "equipment_needed": string[]  // zero or more of exactly: ${EQUIPMENT_KEYS.join(', ')} — omit anything not genuinely required
 }
 
 ${correction ? `IMPORTANT CORRECTION: ${correction}` : ''}`.trim();
@@ -185,6 +200,11 @@ function parseGeneratedRecipes(
         typeof record.why_this_works === 'string' ? record.why_this_works : 'Fits your request and pantry.',
       rescued_ingredient_names: Array.isArray(record.rescued_ingredient_names)
         ? record.rescued_ingredient_names.filter((n: unknown): n is string => typeof n === 'string')
+        : [],
+      equipment_needed: Array.isArray(record.equipment_needed)
+        ? record.equipment_needed.filter(
+            (e: unknown): e is string => typeof e === 'string' && VALID_EQUIPMENT_KEYS.has(e)
+          )
         : [],
       nutrition: null, // filled in by computeNutritionForRecipes below, after parsing
     });

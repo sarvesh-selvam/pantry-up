@@ -7,18 +7,41 @@
 // directly since there's no conversational orchestration needed).
 
 import { getUserSupabaseClient } from './supabaseClient.ts';
-import { getRescueRowEntries, type RescueInventoryItem } from './rescueRow.ts';
+import { getRescueRowEntries, type RescueInventoryItem, type RescueRowEntry } from './rescueRow.ts';
 import type { CanonicalFoodRef } from './matching.ts';
 import type { NutritionDataRow } from './nutritionCalculation.ts';
+
+/** One recent cook, reduced to just what recommendationScoring.ts's
+ * novelty/repetition terms need — cuisine and which ingredient categories
+ * were used (a rough "was this a protein-heavy meal" signal, see that
+ * module's header comment on the same category-based approximation used
+ * for "favorite proteins" elsewhere). */
+export interface RecentCookEvent {
+  cuisine: string | null;
+  ingredientCategories: string[];
+  cookedAt: string;
+}
+
+const RECENT_COOK_EVENTS_WINDOW_DAYS = 30;
+const RECENT_COOK_EVENTS_LIMIT = 50;
 
 export interface PantryContext {
   inventoryItems: Record<string, unknown>[];
   rescueItemNames: string[];
+  /** Full rescue classification (reason, urgency sortKey), not just
+   * names — recommendationScoring.ts's expiry_rescue_score needs the
+   * actual urgency, not just "which items are rescue-eligible." */
+  rescueEntries: RescueRowEntry[];
   canonicalFoods: CanonicalFoodRef[];
   nutritionData: NutritionDataRow[];
   dietaryRestrictions: string[];
   cuisineWeights: Record<string, number>;
   skillLevel: string;
+  /** Was already being fetched (full user_preferences row) but silently
+   * dropped before Phase 8 — now actually reaches GenerationContext and
+   * the equipment_match scoring term. */
+  equipment: string[];
+  recentCookEvents: RecentCookEvent[];
   inventorySummaryLines: string[];
 }
 
@@ -26,11 +49,19 @@ export async function loadPantryContext(
   supabase: ReturnType<typeof getUserSupabaseClient>,
   userId: string
 ): Promise<PantryContext> {
-  const [inventoryResult, canonicalFoodsResult, prefsResult, nutritionResult] = await Promise.all([
+  const cookEventsSince = new Date(Date.now() - RECENT_COOK_EVENTS_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const [inventoryResult, canonicalFoodsResult, prefsResult, nutritionResult, cookEventsResult] = await Promise.all([
     supabase.from('inventory_items').select('*'),
     supabase.from('canonical_foods').select('id, canonical_name, category, aliases'),
     supabase.from('user_preferences').select('*').eq('user_id', userId).maybeSingle(),
     supabase.from('nutrition_data').select('canonical_food_id, calories_per_100g, protein_g_per_100g, carbs_g_per_100g, fat_g_per_100g'),
+    supabase
+      .from('cook_events')
+      .select('recipe_id, cooked_at')
+      .gte('cooked_at', cookEventsSince)
+      .order('cooked_at', { ascending: false })
+      .limit(RECENT_COOK_EVENTS_LIMIT),
   ]);
 
   if (inventoryResult.error) {
@@ -45,8 +76,12 @@ export async function loadPantryContext(
   if (nutritionResult.error) {
     throw new Error(`Failed to load nutrition data: ${nutritionResult.error.message}`);
   }
+  if (cookEventsResult.error) {
+    throw new Error(`Failed to load recent cook events: ${cookEventsResult.error.message}`);
+  }
 
   const items = (inventoryResult.data ?? []) as Record<string, unknown>[];
+  const canonicalFoods = (canonicalFoodsResult.data ?? []) as CanonicalFoodRef[];
 
   const rescueEntries = getRescueRowEntries(items as unknown as RescueInventoryItem[]);
   const rescueItemNames = rescueEntries.map((entry) => entry.item.display_name);
@@ -64,16 +99,68 @@ export async function loadPantryContext(
     dietary_restrictions?: string[];
     cuisine_weights?: Record<string, number>;
     skill_level?: string;
+    equipment?: string[];
   } | null;
+
+  const recentCookEvents = await loadRecentCookEvents(supabase, cookEventsResult.data ?? [], canonicalFoods);
 
   return {
     inventoryItems: items,
     rescueItemNames,
-    canonicalFoods: (canonicalFoodsResult.data ?? []) as CanonicalFoodRef[],
+    rescueEntries,
+    canonicalFoods,
     nutritionData: (nutritionResult.data ?? []) as NutritionDataRow[],
     dietaryRestrictions: prefs?.dietary_restrictions ?? [],
     cuisineWeights: prefs?.cuisine_weights ?? {},
     skillLevel: prefs?.skill_level ?? 'intermediate',
+    equipment: prefs?.equipment ?? [],
+    recentCookEvents,
     inventorySummaryLines,
   };
+}
+
+/**
+ * A second query joining cook_events → recipes (same "two simple queries
+ * over an embedded select" pattern as lib/api/cookEvents.ts's
+ * fetchCookEvents — this schema's Relationships arrays are all empty on
+ * purpose, see CLAUDE.md's Supabase typing gotcha). Reduces each cooked
+ * recipe to just cuisine + which ingredient categories it used, which is
+ * all recommendationScoring.ts's novelty/repetition terms need.
+ */
+async function loadRecentCookEvents(
+  supabase: ReturnType<typeof getUserSupabaseClient>,
+  events: { recipe_id: string; cooked_at: string }[],
+  canonicalFoods: CanonicalFoodRef[]
+): Promise<RecentCookEvent[]> {
+  if (events.length === 0) return [];
+
+  const recipeIds = [...new Set(events.map((event) => event.recipe_id))];
+  const { data: recipes, error } = await supabase
+    .from('recipes')
+    .select('id, cuisine, ingredients')
+    .in('id', recipeIds);
+  if (error) throw new Error(`Failed to load recipes for cook history: ${error.message}`);
+
+  const categoryByFoodId = new Map(canonicalFoods.map((food) => [food.id, food.category]));
+  const recipeById = new Map(
+    (recipes ?? []).map((recipe) => {
+      const ingredients = Array.isArray(recipe.ingredients) ? (recipe.ingredients as Record<string, unknown>[]) : [];
+      const categories = new Set<string>();
+      for (const ingredient of ingredients) {
+        const foodId = typeof ingredient.canonical_food_id === 'string' ? ingredient.canonical_food_id : null;
+        const category = foodId ? categoryByFoodId.get(foodId) : undefined;
+        if (category) categories.add(category);
+      }
+      return [recipe.id, { cuisine: recipe.cuisine as string | null, categories: [...categories] }];
+    })
+  );
+
+  return events.map((event) => {
+    const recipe = recipeById.get(event.recipe_id);
+    return {
+      cuisine: recipe?.cuisine ?? null,
+      ingredientCategories: recipe?.categories ?? [],
+      cookedAt: event.cooked_at,
+    };
+  });
 }

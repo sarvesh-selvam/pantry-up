@@ -17,7 +17,12 @@ import { CLAUDE_MODEL, getAnthropicClient } from '../_shared/anthropic.ts';
 import { loadPantryContext, type PantryContext } from '../_shared/pantryContext.ts';
 import { generateRecipes, type GeneratedRecipe } from '../_shared/recipeGeneration.ts';
 import { matchRecipeToInventory, type MatchInventoryItem } from '../_shared/recipeMatching.ts';
-import { buildRecipeSuggestionPayload, type RecipeSuggestionPayload } from '../_shared/recipePayload.ts';
+import {
+  buildRecipeSuggestionPayload,
+  buildScoringContext,
+  type RecipeSuggestionPayload,
+} from '../_shared/recipePayload.ts';
+import { findDietaryViolations } from '../_shared/dietaryRestrictions.ts';
 
 const MAX_LOOP_ITERATIONS = 8;
 
@@ -144,6 +149,11 @@ const TOOLS: Anthropic.Tool[] = [
 interface ToolExecutionResult {
   result: unknown;
   generatedRecipe?: GeneratedRecipe;
+  /** Only set by generate_recipe — carried out so runOrchestration can
+   * build a ScoringContext with the same time limit the request actually
+   * asked for (buildScoringContext needs it, and PantryContext alone
+   * doesn't carry per-request data). */
+  generatedMaxTimeMinutes?: number | null;
 }
 
 async function executeTool(name: string, input: Record<string, unknown>, ctx: PantryContext): Promise<ToolExecutionResult> {
@@ -160,14 +170,16 @@ async function executeTool(name: string, input: Record<string, unknown>, ctx: Pa
           dietary_restrictions: ctx.dietaryRestrictions,
           cuisine_weights: ctx.cuisineWeights,
           skill_level: ctx.skillLevel,
+          equipment: ctx.equipment,
         },
       };
 
     case 'generate_recipe': {
+      const maxTimeMinutes = typeof input.max_time_minutes === 'number' ? input.max_time_minutes : null;
       const recipes = await generateRecipes(
         {
           constraints: typeof input.constraints === 'string' ? input.constraints : '',
-          maxTimeMinutes: typeof input.max_time_minutes === 'number' ? input.max_time_minutes : null,
+          maxTimeMinutes,
           excludedIngredients: Array.isArray(input.excluded_ingredients)
             ? (input.excluded_ingredients as string[])
             : [],
@@ -176,13 +188,14 @@ async function executeTool(name: string, input: Record<string, unknown>, ctx: Pa
           dietaryRestrictions: ctx.dietaryRestrictions,
           cuisineWeights: ctx.cuisineWeights,
           skillLevel: ctx.skillLevel,
+          equipment: ctx.equipment,
           canonicalFoods: ctx.canonicalFoods,
           nutritionData: ctx.nutritionData,
         },
         1
       );
       const recipe = recipes[0];
-      return { result: recipe, generatedRecipe: recipe };
+      return { result: recipe, generatedRecipe: recipe, generatedMaxTimeMinutes: maxTimeMinutes };
     }
 
     case 'match_recipe_to_inventory': {
@@ -208,6 +221,33 @@ async function executeTool(name: string, input: Record<string, unknown>, ctx: Pa
   }
 }
 
+/**
+ * Same defensive dietary re-check as recipe-suggestions/index.ts (see its
+ * comment) — generateRecipes already only returns compliant recipes, this
+ * should never actually trigger, but ranking/payload-building must never
+ * be the place a violation could slip through unnoticed.
+ */
+function buildFinalRecipe(
+  recipe: GeneratedRecipe | null,
+  ctx: PantryContext,
+  maxTimeMinutes: number | null
+): RecipeSuggestionPayload | null {
+  if (!recipe) return null;
+  const violations = findDietaryViolations(
+    recipe.ingredients.map((ing) => ing.display_name),
+    ctx.dietaryRestrictions
+  );
+  if (violations.length > 0) {
+    console.error('sous-chef-chat: generated recipe failed the defensive dietary re-check — this should not happen');
+    return null;
+  }
+  return buildRecipeSuggestionPayload(
+    recipe,
+    ctx.inventoryItems as unknown as MatchInventoryItem[],
+    buildScoringContext(ctx, maxTimeMinutes)
+  );
+}
+
 async function runOrchestration(
   anthropic: Anthropic,
   history: Anthropic.MessageParam[],
@@ -216,6 +256,7 @@ async function runOrchestration(
 ): Promise<{ reply: string; recipe: RecipeSuggestionPayload | null }> {
   const messages: Anthropic.MessageParam[] = [...history];
   let lastGeneratedRecipe: GeneratedRecipe | null = null;
+  let lastMaxTimeMinutes: number | null = null;
   const systemPrompt = buildSystemPrompt(recipeContext);
 
   for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
@@ -235,9 +276,7 @@ async function runOrchestration(
     if (response.stop_reason !== 'tool_use' || toolUseBlocks.length === 0) {
       const textBlock = response.content.find((block): block is Anthropic.TextBlock => block.type === 'text');
       const reply = textBlock?.text ?? "I'm not sure how to respond to that — could you rephrase?";
-      const recipe = lastGeneratedRecipe
-        ? buildRecipeSuggestionPayload(lastGeneratedRecipe, ctx.inventoryItems as unknown as MatchInventoryItem[])
-        : null;
+      const recipe = buildFinalRecipe(lastGeneratedRecipe, ctx, lastMaxTimeMinutes);
       return { reply, recipe };
     }
 
@@ -246,12 +285,15 @@ async function runOrchestration(
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const toolUse of toolUseBlocks) {
       try {
-        const { result, generatedRecipe } = await executeTool(
+        const { result, generatedRecipe, generatedMaxTimeMinutes } = await executeTool(
           toolUse.name,
           (toolUse.input as Record<string, unknown>) ?? {},
           ctx
         );
-        if (generatedRecipe) lastGeneratedRecipe = generatedRecipe;
+        if (generatedRecipe) {
+          lastGeneratedRecipe = generatedRecipe;
+          lastMaxTimeMinutes = generatedMaxTimeMinutes ?? null;
+        }
         toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: JSON.stringify(result) });
       } catch (err) {
         toolResults.push({
@@ -268,9 +310,7 @@ async function runOrchestration(
 
   // Hit the iteration cap — still return whatever recipe was generated
   // rather than nothing, but be honest that the conversation was cut short.
-  const recipe = lastGeneratedRecipe
-    ? buildRecipeSuggestionPayload(lastGeneratedRecipe, ctx.inventoryItems as unknown as MatchInventoryItem[])
-    : null;
+  const recipe = buildFinalRecipe(lastGeneratedRecipe, ctx, lastMaxTimeMinutes);
   return {
     reply: "That took a bit longer than expected — here's what I've got so far.",
     recipe,
