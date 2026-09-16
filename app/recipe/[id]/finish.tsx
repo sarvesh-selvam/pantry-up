@@ -14,13 +14,33 @@ import {
 import { PrimaryButton } from '../../../components/PrimaryButton';
 import { TextField } from '../../../components/TextField';
 import { colors, radii, spacing } from '../../../constants/theme';
+import { logDailyNutrition, todayLocalDate } from '../../../lib/api/dailyNutrition';
 import { createCookEvent } from '../../../lib/api/cookEvents';
 import { fetchRecipeById } from '../../../lib/api/recipes';
 import { proposeInventoryMutations, type ProposedMutation } from '../../../lib/cookingMutations';
 import { useAuth } from '../../../lib/auth/AuthContext';
 import { useInventory } from '../../../lib/inventory/InventoryContext';
-import type { AppliedMutation, LeftoverRecord } from '../../../types/cookEvent';
+import type { AppliedMutation, ConsumedNutrition, LeftoverRecord } from '../../../types/cookEvent';
 import type { Recipe } from '../../../types/recipe';
+
+function roundOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+/** Deterministic — recipe.nutrition (per serving, computed at generation
+ * time, never LLM-invented) × servings actually eaten now. Null if the
+ * recipe has no nutrition data to scale from — never guessed. */
+function computeConsumedNutrition(recipe: Recipe, servingsConsumed: number): ConsumedNutrition | null {
+  if (!recipe.nutrition || !Number.isFinite(servingsConsumed) || servingsConsumed <= 0) return null;
+  return {
+    calories: roundOneDecimal(recipe.nutrition.calories_per_serving * servingsConsumed),
+    protein_g: roundOneDecimal(recipe.nutrition.protein_g_per_serving * servingsConsumed),
+    carbs_g: roundOneDecimal(recipe.nutrition.carbs_g_per_serving * servingsConsumed),
+    fat_g: roundOneDecimal(recipe.nutrition.fat_g_per_serving * servingsConsumed),
+    servings_consumed: servingsConsumed,
+    is_partial: recipe.nutrition.is_partial,
+  };
+}
 
 type Stage = 'loading' | 'servings' | 'mutations' | 'leftovers' | 'saving';
 
@@ -192,13 +212,28 @@ export default function FinishCookingScreen() {
   async function finalize(applied: AppliedMutation[], leftovers: LeftoverRecord[] | null) {
     if (!recipe || !session) return;
     try {
+      const consumedNutrition = computeConsumedNutrition(recipe, servingsConsumed);
+
+      // Only confirmed consumption logs macros — never generating/saving a
+      // recipe (see CLAUDE.md's Phase 6 note). This is the one write to
+      // daily_nutrition in the whole Finish Cooking flow, and it only
+      // happens here, after everything else has been confirmed.
+      if (consumedNutrition) {
+        await logDailyNutrition(session.user.id, todayLocalDate(), {
+          calories: consumedNutrition.calories,
+          protein_g: consumedNutrition.protein_g,
+          carbs_g: consumedNutrition.carbs_g,
+          fat_g: consumedNutrition.fat_g,
+        });
+      }
+
       await createCookEvent(session.user.id, {
         recipe_id: recipe.id,
         cooked_at: new Date().toISOString(),
         servings_prepared: Number.isFinite(servingsPrepared) ? servingsPrepared : null,
         servings_consumed: Number.isFinite(servingsConsumed) ? servingsConsumed : null,
         inventory_mutations: applied,
-        nutrition_consumed: null,
+        nutrition_consumed: consumedNutrition,
         leftovers_created: leftovers,
         user_feedback: null,
       });

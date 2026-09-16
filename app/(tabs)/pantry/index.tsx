@@ -13,11 +13,13 @@ import {
 } from 'react-native';
 import { InventoryItemRow } from '../../../components/InventoryItemRow';
 import { colors, spacing } from '../../../constants/theme';
+import { useAuth } from '../../../lib/auth/AuthContext';
 import {
   STORAGE_LOCATION_LABELS,
   STORAGE_LOCATION_ORDER,
 } from '../../../lib/formatInventory';
 import { useInventory } from '../../../lib/inventory/InventoryContext';
+import { logLeftoverConsumption } from '../../../lib/nutritionLogging';
 import type { InventoryItem, StorageLocation } from '../../../types/database';
 
 interface Section {
@@ -27,6 +29,7 @@ interface Section {
 
 export default function PantryListScreen() {
   const router = useRouter();
+  const { session } = useAuth();
   const { items, isLoading, error, refresh, removeItem, editItem } = useInventory();
 
   const sections = useMemo<Section[]>(() => {
@@ -60,6 +63,30 @@ export default function PantryListScreen() {
       verification_status: 'confirmed',
       last_verified_at: new Date().toISOString(),
     }).catch((err) => Alert.alert('Error', err.message));
+  }
+
+  function confirmAte(item: InventoryItem) {
+    Alert.alert('Ate it?', `Remove "${item.display_name}" and log its nutrition?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Yes, I ate it',
+        onPress: async () => {
+          if (!session) return;
+          try {
+            const { logged } = await logLeftoverConsumption(item, session.user.id);
+            await removeItem(item.id);
+            if (!logged) {
+              Alert.alert(
+                'Removed',
+                "Removed from your pantry. Nutrition wasn't logged — no recipe on file for this leftover."
+              );
+            }
+          } catch (err) {
+            Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update pantry');
+          }
+        },
+      },
+    ]);
   }
 
   return (
@@ -114,6 +141,7 @@ export default function PantryListScreen() {
               onPress={() => router.push(`/(tabs)/pantry/${item.id}`)}
               onDelete={() => confirmDelete(item)}
               onVerify={() => verify(item)}
+              onAte={() => confirmAte(item)}
             />
           )}
         />

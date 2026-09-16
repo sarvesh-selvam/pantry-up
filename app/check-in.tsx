@@ -6,12 +6,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckInCard } from '../components/CheckInCard';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, spacing } from '../constants/theme';
+import { useAuth } from '../lib/auth/AuthContext';
 import { applyCheckInResponse, type CheckInResponse } from '../lib/checkInResponses';
 import { getCheckInBatch } from '../lib/checkInScoring';
 import { useInventory } from '../lib/inventory/InventoryContext';
 
 export default function CheckInScreen() {
   const router = useRouter();
+  const { session } = useAuth();
   const { items, editItem, removeItem } = useInventory();
 
   // Snapshot once at mount — a session is a fixed batch. Later inventory
@@ -25,10 +27,10 @@ export default function CheckInScreen() {
   const isDone = currentIndex >= batch.length;
 
   async function handleRespond(response: CheckInResponse) {
-    if (!current || applying) return;
+    if (!current || applying || !session) return;
     setApplying(true);
     try {
-      await applyCheckInResponse(current.item.id, response, { editItem, removeItem });
+      await applyCheckInResponse(current.item, response, { editItem, removeItem }, session.user.id);
       setCurrentIndex((i) => i + 1);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update this item');

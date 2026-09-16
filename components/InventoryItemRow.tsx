@@ -13,10 +13,15 @@ interface Props {
    * when the item is uncertain. Correcting a field still happens via
    * onPress (the edit screen), which also clears the flag on save. */
   onVerify: () => void;
+  /** Only rendered for preparation_state === 'leftover' items — logs
+   * nutrition (if traceable to a recipe) and removes the item, same as
+   * Kitchen Check-In's "Ate It" (see lib/nutritionLogging.ts). */
+  onAte: () => void;
 }
 
-export function InventoryItemRow({ item, onPress, onDelete, onVerify }: Props) {
+export function InventoryItemRow({ item, onPress, onDelete, onVerify, onAte }: Props) {
   const uncertain = isUncertain(item);
+  const isLeftover = item.preparation_state === 'leftover';
 
   return (
     <Pressable
@@ -42,6 +47,17 @@ export function InventoryItemRow({ item, onPress, onDelete, onVerify }: Props) {
           accessibilityLabel={`Verify ${item.display_name}`}
         >
           <Ionicons name="checkmark-circle-outline" size={20} color={colors.primary} />
+        </Pressable>
+      )}
+      {isLeftover && (
+        <Pressable
+          onPress={onAte}
+          hitSlop={12}
+          style={styles.ateButton}
+          accessibilityRole="button"
+          accessibilityLabel={`I ate ${item.display_name}`}
+        >
+          <Ionicons name="restaurant-outline" size={20} color={colors.primary} />
         </Pressable>
       )}
       <Pressable
@@ -90,6 +106,9 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   verifyButton: {
+    padding: spacing.xs,
+  },
+  ateButton: {
     padding: spacing.xs,
   },
   deleteButton: {

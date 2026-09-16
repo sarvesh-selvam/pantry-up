@@ -227,7 +227,27 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    // Every other write in this schema goes through a plain PostgREST
+    // insert/update, but "add to today's total rather than overwrite it"
+    // isn't expressible that way — increment_daily_nutrition (see
+    // db/migrations/0014_daily_nutrition.sql) is the one place this app
+    // calls a Postgres function via .rpc(), so it's the one Functions
+    // entry that needs a real Args/Returns shape rather than `never`
+    // (supabase-js's .rpc() resolves the params type to `undefined` for
+    // any function typed as `never`, which fails at the call site).
+    Functions: {
+      increment_daily_nutrition: {
+        Args: {
+          p_user_id: string;
+          p_log_date: string;
+          p_calories: number;
+          p_protein_g: number;
+          p_carbs_g: number;
+          p_fat_g: number;
+        };
+        Returns: DailyNutrition;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
