@@ -32,6 +32,14 @@ A mobile-first, inventory-aware kitchen app.
   surfaces on the recipe detail screen's "Watch" section, inline on Sous
   Chef's chat cards, and on Cooking Mode's previously-empty per-step video
   slots.
+- **Phase 8: Personalization** — a real Settings screen for cuisine/dietary/
+  equipment preferences, and a deterministic multi-signal scoring function
+  (pantry coverage, rescue urgency, cuisine preference, stated time limit,
+  equipment owned, novelty/repetition from cook history) that ranks Home's
+  suggestions and Sous Chef's recipe — never an LLM judgment call, so ranking
+  stays inspectable. "Why this works" is now grounded in the actual score
+  breakdown instead of trusting LLM prose alone; dietary restrictions remain
+  a hard pre-filter that behavioral learning can never touch.
 
 ## Stack
 
@@ -63,9 +71,13 @@ app/              Screens and routes (expo-router)
                         logging, in that order
   check-in.tsx    Kitchen Check-In (modal, reachable only from Home's
                    entry banner, only when something needs review)
+  settings.tsx    Cuisine/dietary/equipment preferences (modal, reachable
+                   from Home's gear icon) — the only place user_preferences
+                   is ever written
 components/       Shared UI components (incl. RecipeCard, reused by Sous
                    Chef's inline cards, Home's suggestion cards, and
-                   Cookbook's grid; StepTimer and TechniqueVideoSlot for
+                   Cookbook's grid — now also renders deterministic
+                   why_bullets; StepTimer and TechniqueVideoSlot for
                    Cooking Mode; CheckInCard/CheckInBanner/KitchenStatusRow
                    for Check-In; MacroRingRow for Home and Macros)
 constants/        Design tokens (colors, spacing)
@@ -80,7 +92,10 @@ lib/              Supabase client, auth/inventory contexts, API helpers,
                    Check-In's staleness scoring + response handling
                    (checkInScoring.ts, checkInResponses.ts), the
                    recipe-videos client (api/youtube.ts) and its dumb
-                   step/technique keyword matcher (matchTechniqueToStep.ts)
+                   step/technique keyword matcher (matchTechniqueToStep.ts),
+                   the curated Settings option lists (preferenceOptions.ts),
+                   and pure behavioral-signal derivation functions
+                   (behavioralSignals.ts)
   cookbook/CookbookScanContext.tsx   scan-draft handoff, scoped to the
                    Cookbook stack (same pattern as quickAddDraft)
 types/            Hand-written types mirroring the Postgres schema
@@ -89,16 +104,18 @@ supabase/functions/  Edge Functions (Deno):
                       quick-add-parse, receipt-scan — Phase 2 normalization
                       sous-chef-chat — tool-calling recipe assistant,
                       optionally grounded in a recipe being cooked
-                      recipe-suggestions — Home's automatic suggestions
+                      recipe-suggestions — Home's automatic suggestions,
+                      now ranked by the deterministic scoring formula
                       cookbook-scan — vision-extracts title/ingredients/
                       instructions from a cookbook photo, nothing invented
                       recipe-videos — identifies a recipe's key technique
                       (LLM), then a real YouTube Data API search for it
                       _shared/ — normalization pipeline, recipe generation,
                       dietary-restriction enforcement, matching engine (Deno
-                      port), pantry context loader, nutrition calculation
-                      (Deno port), YouTube search wrapper, technique
-                      identification
+                      port), pantry context loader (now also cook history
+                      + equipment), nutrition calculation (Deno port),
+                      YouTube search wrapper, technique identification, the
+                      recommendation scoring engine (+ its own deno tests)
 ```
 
 ## Prerequisites
@@ -153,6 +170,9 @@ supabase/functions/  Edge Functions (Deno):
    db/migrations/0013_nutrition_data.sql
    db/migrations/0014_daily_nutrition.sql
    db/migrations/0015_inventory_source_recipe_link.sql
+   db/migrations/0016_item_dispositions.sql
+   db/migrations/0017_recommendation_events.sql
+   db/migrations/0018_recipes_equipment_needed.sql
    ```
 
    (If you have the Supabase CLI linked to your project — `supabase link` —
@@ -180,6 +200,13 @@ supabase/functions/  Edge Functions (Deno):
    logging writes through (a plain PostgREST upsert can't express "add to
    today's total," only replace it); and `inventory_items.source_recipe_id`
    so eating a leftover can trace back to the recipe it was cooked from.
+
+   `0016`-`0018` (Phase 8) add `item_dispositions` (an insert-only log of
+   why an item left the pantry — consumed/discarded/unknown, since
+   hard-deleted rows would otherwise lose that reason entirely);
+   `recommendation_events` (Home suggestions shown vs. saved); and
+   `recipes.equipment_needed` (a controlled-vocabulary tag, always empty
+   for manual/scanned recipes).
 
 4. In Supabase Auth settings, email/password sign-in is enabled by default.
    If you want to skip email confirmation during local testing, turn off
@@ -355,6 +382,50 @@ its detail screen is opened, then cached on `recipes.youtube_metadata` — no
 new migration needed, the column already existed from Phase 3's schema
 (`db/migrations/0008_recipes.sql`), just typed as `unknown` until now.
 
+**Phase 8 — personalization ranking, no new Edge Function.** No new
+secret, no new function: `recipe-suggestions` and `sous-chef-chat` are
+extended in place. `_shared/recommendationScoring.ts` is a deterministic
+weighted-sum function — pantry coverage, urgency-weighted rescue score,
+explicit cuisine preference nudged (never overwritten) by recent cook
+frequency, a stated time limit if one exists, equipment owned, and
+novelty/repetition from cook history, minus missing-ingredient and
+repetition penalties — called from `_shared/recipePayload.ts`'s
+`buildRecipeSuggestionPayload`, the single choke point both entry points
+already shared, so the two can't drift into different ranking behavior.
+`recipe-suggestions` sorts its four candidates by score before returning;
+`sous-chef-chat` computes one recipe's score for explainability (no
+sorting needed for a single candidate). `_shared/pantryContext.ts` now
+also loads the last 30 days of `cook_events` (joined to `recipes` for
+cuisine + ingredient categories) and exposes the user's own equipment
+(previously fetched but silently dropped before reaching generation).
+
+**Ranking runs strictly after the hard dietary filter, never instead of
+it or before it.** `generateRecipes` (Phase 3) already only returns
+recipes that passed `findDietaryViolations`; both `recipe-suggestions`
+and `sous-chef-chat` additionally re-run that same check defensively
+right before scoring, as a belt-and-suspenders verification that the
+invariant actually held, not the primary enforcement. Every write to
+`user_preferences` (including `dietary_restrictions`) goes through
+exactly one path — the Settings screen's `updateUserPreferences` — audited
+by grep; there is no behavioral-learning code path that could silently
+alter a hard constraint. See Known limitations for what "verify" meant in
+an environment with no test framework: two new Deno test files
+(`_shared/dietaryRestrictions.test.ts`, `_shared/
+recommendationScoring.test.ts`, runnable via `deno test`) pin down the
+properties that matter — violations are flagged/not-flagged correctly,
+an honestly-neutral term stays neutral, repetition nudges rather than
+dominates.
+
+**"Why this works" is now grounded in the score, not LLM narration.**
+`buildWhyBullets` (`_shared/recommendationScoring.ts`) generates plain
+strings straight from the score breakdown's real numbers — "Uses spinach,
+which needs to be used soon," "You have 9 of 10 ingredients already,"
+"Fits your request for under 30 minutes" — never asked of or trusted from
+the model. `RecipeCard` and the recipe detail screen render these bullets
+when present, falling back to the old free-text `why_this_works` for
+recipes saved before Phase 8 or manual/scanned recipes that never went
+through scoring.
+
 ## What's implemented
 
 **Phase 1**
@@ -512,6 +583,36 @@ new migration needed, the column already existed from Phase 3's schema
   generated recipe resolves — Home's compact card variant and Cookbook's
   grid don't show video previews (not required by spec, and consistent
   with the quota-conscious "don't fetch for unsaved candidates" decision)
+
+**Phase 8**
+- Settings screen (`app/settings.tsx`, reachable from Home's gear icon):
+  the only place `user_preferences` is ever written — skill level, dietary
+  restrictions, equipment, and three-tier (Avoid/Neutral/Favorite) cuisine
+  preferences, all previously populated only by an empty signup-trigger
+  default with zero write path anywhere in the app
+- Deterministic multi-signal recommendation scoring
+  (`_shared/recommendationScoring.ts`) ranks Home's four suggestion
+  candidates and computes an inspectable score for Sous Chef's — pantry
+  coverage, urgency-weighted rescue score, cuisine preference (explicit
+  weight nudged, never overwritten, by recent cook frequency), a stated
+  time limit if one exists, equipment owned, and novelty/repetition from
+  cook history, minus missing-ingredient and repetition penalties
+- "Why this works" bullets (`buildWhyBullets`) are generated straight from
+  the score breakdown's real numbers, not LLM narration — rendered on
+  `RecipeCard`'s full variant and the recipe detail screen, falling back
+  to the old free-text explanation for pre-Phase-8 or manual/scanned
+  recipes that never went through scoring
+- Behavioral signal tracking: `item_dispositions` logs why an inventory
+  item left the pantry (Check-In's Gone/Ate It/Discarded, Pantry's "I ate
+  this"), `recommendation_events` logs Home suggestions shown vs. saved,
+  and `lib/behavioralSignals.ts` adds pure derivation functions for the
+  signals the product spec calls out — see Known limitations for exactly
+  which of these feed the score today versus exist as real, correct
+  signals without being force-fit into a formula that doesn't name them
+- Dietary restrictions/allergies remain a hard pre-filter verified to
+  precede ranking (audited by grep, backed by two new Deno test files —
+  see Edge Functions above) — behavioral learning has no code path that
+  could alter them, only an explicit Settings edit can
 
 ## Known limitations
 
@@ -683,3 +784,54 @@ new migration needed, the column already existed from Phase 3's schema
   the only way to update them) — there's no automatic staleness check
   (e.g. re-searching after N months), so a very old cached result is never
   proactively refreshed on its own.
+- Of the six behavioral signals the product spec calls out in Phase 8
+  section 1, only two are actually wired into the ranking score: cuisines
+  frequently cooked (feeds `preference_match`'s behavioral nudge) and
+  recent cook history broadly (feeds `novelty_score`/
+  `recent_meal_repetition_penalty`). The other four — recipes saved but
+  never cooked, ingredients frequently discarded, average cooking time,
+  and frequently skipped suggestions — are implemented as real, correct
+  derivation functions (`lib/behavioralSignals.ts`) and, for the two that
+  needed one, a real backing table (`item_dispositions`,
+  `recommendation_events`), but aren't force-fit into the scoring
+  formula, because the product spec's own formula (section 3) doesn't
+  name them as score terms. No dedicated "Insights" UI surfaces them
+  either — that wasn't in this phase's Definition of Done. A future phase
+  could wire either in without new data collection.
+- `macro_match` is a constant 0.5 (neutral) for every recipe — there's no
+  stated macro/nutrition goal anywhere in `user_preferences` to compare a
+  recipe's nutrition against (Phase 6 deliberately didn't fabricate one,
+  and this phase didn't add macro-goal onboarding either, since it wasn't
+  asked for). Scoring it as anything other than neutral would mean
+  inventing a preference nobody stated — the formula's full shape (all
+  nine terms from the product spec) is still implemented and visible in
+  `score_breakdown`, just honestly inert for this one term until a real
+  macro-goal input exists.
+- `equipment_needed` is only ever populated by the LLM at generation time
+  (Sous Chef, Home suggestions) — manual and cookbook-scanned recipes
+  always get an empty array (no equipment requirement inferred), which
+  `equipment_match` treats as a full match rather than a penalty. This is
+  the honest default (no data beats a guess), but it does mean
+  `equipment_match` is currently a no-op for every non-generated recipe.
+- The cuisine list on the Settings screen (`lib/preferenceOptions.ts`'s
+  `CUISINE_OPTIONS`) is a fixed 10-cuisine picker, not a free-text field
+  or a list derived from what's actually been generated/cooked — a
+  cuisine a recipe uses that isn't in this list can still be scored (via
+  `cuisineWeights`' neutral 0.5 default and the behavioral nudge) but has
+  no way to get an explicit user-set weight.
+- The `recommendation_events`/`item_dispositions` tables and their
+  behavioral-nudge math have never run against real usage data (same
+  "no Supabase CLI/Docker/device in this environment" constraint as every
+  prior phase) — the scoring formula's weights and the
+  `MAX_BEHAVIORAL_PREFERENCE_NUDGE`/repetition-window constants in
+  `_shared/recommendationScoring.ts` are reasoned-through defaults, not
+  tuned against how real cooking behavior actually distributes.
+- Building a "rank my saved Cookbook recipes too" feature was explicitly
+  scoped out — the product spec's section 3 mentions candidates "whether
+  freshly LLM-generated or pulled from Cookbook" as describing the
+  scoring function's general applicability, but the Definition of Done
+  only requires Home's suggestions and Sous Chef's recipe to be ranked.
+  `recommendationScoring.ts` is written generically enough that a future
+  phase could score Cookbook recipes with it, but nothing calls it there
+  today, and no audit of "does ranking respect a Cookbook recipe's
+  possibly-stale dietary compliance" was needed as a result.
