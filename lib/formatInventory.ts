@@ -39,3 +39,29 @@ export function isUncertain(item: Pick<InventoryItem, 'verification_status'>): b
     item.verification_status === 'needs_verification'
   );
 }
+
+/**
+ * The expiry date to show for an item, preferring what the user typed over
+ * the deterministically-computed estimate. `isEstimated` tells the caller
+ * whether to show the uncertainty badge next to it (never for a
+ * user-provided date).
+ */
+export function getEffectiveExpiry(
+  item: Pick<InventoryItem, 'expiry_user_provided' | 'expiry_estimated'>
+): { date: string | null; isEstimated: boolean } {
+  if (item.expiry_user_provided) {
+    return { date: item.expiry_user_provided, isEstimated: false };
+  }
+  if (item.expiry_estimated) {
+    return { date: item.expiry_estimated, isEstimated: true };
+  }
+  return { date: null, isEstimated: false };
+}
+
+export function daysUntil(dateString: string): number {
+  const target = new Date(`${dateString.slice(0, 10)}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((target.getTime() - today.getTime()) / msPerDay);
+}

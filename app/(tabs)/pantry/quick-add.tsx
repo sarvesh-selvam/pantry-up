@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -12,39 +13,48 @@ import {
 import { PrimaryButton } from '../../../components/PrimaryButton';
 import { colors, radii, spacing } from '../../../constants/theme';
 import { useInventory } from '../../../lib/inventory/InventoryContext';
-import { parseQuickAddText } from '../../../lib/quickAddParser';
+import { coerceFoodCategory, parseQuickAddText } from '../../../lib/quickAddParser';
 import type { QuickAddDraftItem } from '../../../types/quickAdd';
 
 export default function QuickAddScreen() {
   const router = useRouter();
   const { canonicalFoods, setQuickAddDraft } = useInventory();
   const [text, setText] = useState('');
+  const [parsing, setParsing] = useState(false);
 
-  function handleParse() {
+  async function handleParse() {
     if (!text.trim()) {
       Alert.alert('Nothing to add', 'Type a few items first, e.g. "milk, onions and rice".');
       return;
     }
 
-    const parsed = parseQuickAddText(text, canonicalFoods);
-    if (parsed.length === 0) {
-      Alert.alert('Nothing to add', "Couldn't find any items in that text.");
-      return;
+    setParsing(true);
+    try {
+      const parsed = await parseQuickAddText(text, canonicalFoods);
+      if (parsed.length === 0) {
+        Alert.alert('Nothing to add', "Couldn't find any items in that text.");
+        return;
+      }
+
+      const draft: QuickAddDraftItem[] = parsed.map((item, index) => ({
+        key: `${Date.now()}-${index}`,
+        rawText: item.rawText,
+        displayName: item.displayName,
+        quantityValue: item.quantityValue,
+        quantityUnit: item.quantityUnit,
+        canonicalFoodId: item.canonicalFood?.id ?? null,
+        category: item.canonicalFood?.category ?? coerceFoodCategory(item.categoryGuess),
+        included: true,
+        source: 'quick_add',
+      }));
+
+      setQuickAddDraft(draft);
+      router.push('/(tabs)/pantry/quick-add-review');
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to parse that text.');
+    } finally {
+      setParsing(false);
     }
-
-    const draft: QuickAddDraftItem[] = parsed.map((item, index) => ({
-      key: `${Date.now()}-${index}`,
-      rawText: item.rawText,
-      displayName: item.displayName,
-      quantityValue: item.quantityValue,
-      quantityUnit: item.quantityUnit,
-      canonicalFoodId: item.canonicalFood?.id ?? null,
-      category: item.canonicalFood?.category ?? null,
-      included: true,
-    }));
-
-    setQuickAddDraft(draft);
-    router.push('/(tabs)/pantry/quick-add-review');
   }
 
   return (
@@ -64,8 +74,16 @@ export default function QuickAddScreen() {
           placeholderTextColor={colors.textMuted}
           multiline
           autoFocus
+          editable={!parsing}
         />
-        <PrimaryButton label="Parse items" onPress={handleParse} />
+        {parsing ? (
+          <View style={styles.parsingRow}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.parsingLabel}>Reading your list…</Text>
+          </View>
+        ) : (
+          <PrimaryButton label="Parse items" onPress={handleParse} />
+        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -95,5 +113,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.surface,
     textAlignVertical: 'top',
+  },
+  parsingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  parsingLabel: {
+    color: colors.textMuted,
+    fontSize: 14,
   },
 });

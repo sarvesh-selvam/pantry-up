@@ -8,6 +8,7 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { fetchCanonicalFoods } from '../api/canonicalFoods';
+import { fetchFoodStorageRules } from '../api/foodStorageRules';
 import {
   createInventoryItem,
   createInventoryItems,
@@ -18,6 +19,7 @@ import {
 import { useAuth } from '../auth/AuthContext';
 import type {
   CanonicalFood,
+  FoodStorageRule,
   InventoryItem,
   InventoryItemInsert,
   InventoryItemUpdate,
@@ -27,6 +29,7 @@ import type { QuickAddDraftItem } from '../../types/quickAdd';
 interface InventoryContextValue {
   items: InventoryItem[];
   canonicalFoods: CanonicalFood[];
+  foodStorageRules: FoodStorageRule[];
   isLoading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -46,6 +49,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
 
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [canonicalFoods, setCanonicalFoods] = useState<CanonicalFood[]>([]);
+  const [foodStorageRules, setFoodStorageRules] = useState<FoodStorageRule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [quickAddDraft, setQuickAddDraft] = useState<QuickAddDraftItem[]>([]);
@@ -55,12 +59,14 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     setIsLoading(true);
     setError(null);
     try {
-      const [inventoryItems, foods] = await Promise.all([
+      const [inventoryItems, foods, rules] = await Promise.all([
         fetchInventoryItems(),
         fetchCanonicalFoods(),
+        fetchFoodStorageRules(),
       ]);
       setItems(inventoryItems);
       setCanonicalFoods(foods);
+      setFoodStorageRules(rules);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load pantry data');
     } finally {
@@ -74,6 +80,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     } else {
       setItems([]);
       setCanonicalFoods([]);
+      setFoodStorageRules([]);
       setIsLoading(false);
     }
   }, [userId, refresh]);
@@ -111,7 +118,8 @@ export function InventoryProvider({ children }: PropsWithChildren) {
         quantity_state: null,
         preparation_state: 'raw',
         storage_location: 'fridge',
-        source: 'quick_add',
+        source: draft.source,
+        raw_input_text: draft.rawText,
         purchased_at: null,
         opened_at: null,
         expiry_user_provided: null,
@@ -134,6 +142,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     () => ({
       items,
       canonicalFoods,
+      foodStorageRules,
       isLoading,
       error,
       refresh,
@@ -147,6 +156,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     [
       items,
       canonicalFoods,
+      foodStorageRules,
       isLoading,
       error,
       refresh,

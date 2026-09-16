@@ -3,6 +3,7 @@ import { Redirect, Tabs } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { colors } from '../../constants/theme';
 import { useAuth } from '../../lib/auth/AuthContext';
+import { InventoryProvider } from '../../lib/inventory/InventoryContext';
 
 export default function TabsLayout() {
   const { session, isLoading } = useAuth();
@@ -19,6 +20,14 @@ export default function TabsLayout() {
     return <Redirect href="/(auth)/login" />;
   }
 
+  return (
+    <InventoryProvider>
+      <TabsNavigator />
+    </InventoryProvider>
+  );
+}
+
+function TabsNavigator() {
   return (
     <Tabs
       screenOptions={{

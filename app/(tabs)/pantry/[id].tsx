@@ -6,7 +6,12 @@ import { PrimaryButton } from '../../../components/PrimaryButton';
 import { TextField } from '../../../components/TextField';
 import { colors, spacing } from '../../../constants/theme';
 import { formatDateInput, parseDateInput } from '../../../lib/dateInput';
-import { STORAGE_LOCATION_LABELS, STORAGE_LOCATION_ORDER } from '../../../lib/formatInventory';
+import { findStorageRule } from '../../../lib/foodStorageRules';
+import {
+  STORAGE_LOCATION_LABELS,
+  STORAGE_LOCATION_ORDER,
+  getEffectiveExpiry,
+} from '../../../lib/formatInventory';
 import { useInventory } from '../../../lib/inventory/InventoryContext';
 import type { PreparationState, QuantityState, StorageLocation } from '../../../types/database';
 
@@ -32,9 +37,17 @@ const STORAGE_OPTIONS = STORAGE_LOCATION_ORDER.map((value) => ({
 export default function EditItemScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { items, editItem, removeItem } = useInventory();
+  const { items, editItem, removeItem, foodStorageRules } = useInventory();
 
   const item = useMemo(() => items.find((candidate) => candidate.id === id), [items, id]);
+  const { date: effectiveExpiry, isEstimated: expiryIsEstimated } = useMemo(
+    () => (item ? getEffectiveExpiry(item) : { date: null, isEstimated: false }),
+    [item]
+  );
+  const storageRule = useMemo(
+    () => (item ? findStorageRule(item, foodStorageRules) : null),
+    [item, foodStorageRules]
+  );
 
   const [name, setName] = useState(item?.display_name ?? '');
   const [quantityValue, setQuantityValue] = useState(
@@ -100,6 +113,9 @@ export default function EditItemScreen() {
         purchased_at: parseDateInput(purchasedAt),
         opened_at: parseDateInput(openedAt),
         expiry_user_provided: parseDateInput(expiryUserProvided),
+        // Saving from this screen is how a user confirms or corrects an
+        // uncertain item — see Phase 2's verification rule.
+        verification_status: 'confirmed',
         last_verified_at: new Date().toISOString(),
       });
       router.back();
@@ -186,6 +202,30 @@ export default function EditItemScreen() {
           placeholder="2026-09-20"
         />
 
+        {expiryIsEstimated && effectiveExpiry && (
+          <View
+            style={[
+              styles.expiryNote,
+              storageRule?.is_safety_critical && styles.expiryNoteSafetyCritical,
+            ]}
+          >
+            <Text
+              style={[
+                styles.expiryNoteText,
+                storageRule?.is_safety_critical && styles.expiryNoteTextSafetyCritical,
+              ]}
+            >
+              {storageRule?.is_safety_critical
+                ? `Food safety estimate: ${formatDateInput(effectiveExpiry)}. Use your judgment — this is a guideline, not a guarantee.`
+                : `Estimated freshness: ${formatDateInput(effectiveExpiry)}. A quality guideline, not a guarantee — set an exact date above if you know it.`}
+            </Text>
+          </View>
+        )}
+
+        {item.raw_input_text && (
+          <Text style={styles.rawInputNote}>Originally entered as: "{item.raw_input_text}"</Text>
+        )}
+
         <PrimaryButton label="Save changes" onPress={handleSave} loading={saving} />
         <PrimaryButton label="Delete item" onPress={handleDelete} variant="secondary" />
       </ScrollView>
@@ -211,5 +251,26 @@ const styles = StyleSheet.create({
   notFound: {
     color: colors.textMuted,
     fontSize: 16,
+  },
+  expiryNote: {
+    backgroundColor: colors.uncertainBackground,
+    borderRadius: 10,
+    padding: spacing.sm,
+  },
+  expiryNoteText: {
+    color: colors.uncertain,
+    fontSize: 13,
+  },
+  expiryNoteSafetyCritical: {
+    backgroundColor: '#FBEAE7',
+  },
+  expiryNoteTextSafetyCritical: {
+    color: colors.danger,
+    fontWeight: '600',
+  },
+  rawInputNote: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontStyle: 'italic',
   },
 });

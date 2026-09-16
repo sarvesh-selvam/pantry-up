@@ -27,7 +27,7 @@ interface Section {
 
 export default function PantryListScreen() {
   const router = useRouter();
-  const { items, isLoading, error, refresh, removeItem } = useInventory();
+  const { items, isLoading, error, refresh, removeItem, editItem } = useInventory();
 
   const sections = useMemo<Section[]>(() => {
     const byLocation = new Map<StorageLocation, InventoryItem[]>();
@@ -55,6 +55,13 @@ export default function PantryListScreen() {
     ]);
   }
 
+  function verify(item: InventoryItem) {
+    editItem(item.id, {
+      verification_status: 'confirmed',
+      last_verified_at: new Date().toISOString(),
+    }).catch((err) => Alert.alert('Error', err.message));
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.actions}>
@@ -71,6 +78,13 @@ export default function PantryListScreen() {
         >
           <Ionicons name="flash-outline" size={18} color={colors.primary} />
           <Text style={styles.secondaryActionLabel}>Quick Add</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.actionButton, styles.secondaryAction]}
+          onPress={() => router.push('/(tabs)/pantry/receipt-scan')}
+        >
+          <Ionicons name="receipt-outline" size={18} color={colors.primary} />
+          <Text style={styles.secondaryActionLabel}>Scan Receipt</Text>
         </Pressable>
       </View>
 
@@ -99,6 +113,7 @@ export default function PantryListScreen() {
               item={item}
               onPress={() => router.push(`/(tabs)/pantry/${item.id}`)}
               onDelete={() => confirmDelete(item)}
+              onVerify={() => verify(item)}
             />
           )}
         />

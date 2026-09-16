@@ -65,6 +65,7 @@ export default function AddItemScreen() {
         preparation_state: preparationState,
         storage_location: storageLocation,
         source: 'manual',
+        raw_input_text: null,
         purchased_at: null,
         opened_at: null,
         expiry_user_provided: null,

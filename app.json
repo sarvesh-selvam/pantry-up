@@ -29,7 +29,14 @@
       "expo-router",
       "expo-status-bar",
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PantryUp uses your photo library to scan a receipt into your pantry.",
+          "cameraPermission": "PantryUp uses your camera to scan a receipt into your pantry."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

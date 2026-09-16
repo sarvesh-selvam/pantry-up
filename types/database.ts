@@ -12,6 +12,18 @@ export type FoodCategory =
   | 'prepared'
   | 'other';
 
+export const FOOD_CATEGORIES: readonly FoodCategory[] = [
+  'produce',
+  'dairy',
+  'meat',
+  'grains',
+  'canned_goods',
+  'condiments',
+  'pantry_staple',
+  'prepared',
+  'other',
+];
+
 export type QuantityConfidence = 'confirmed' | 'estimated';
 
 export type QuantityState =
@@ -70,10 +82,26 @@ export type InventoryItem = {
   expiry_user_provided: string | null;
   expiry_estimated: string | null;
   verification_status: VerificationStatus;
+  /** Exactly what the user typed (Quick Add) or what OCR/vision extracted
+   * (receipt scan) for this item — never overwritten by normalization. */
+  raw_input_text: string | null;
   created_at: string;
   updated_at: string;
   last_verified_at: string | null;
 }
+
+export type FoodStorageRule = {
+  id: string;
+  canonical_food_id: string | null;
+  category: FoodCategory;
+  preparation_state: PreparationState;
+  storage_location: StorageLocation;
+  is_opened: boolean;
+  typical_shelf_life_days: number;
+  is_safety_critical: boolean;
+  source_note: string;
+  created_at: string;
+};
 
 // App-facing insert shape: callers (e.g. addItem) don't supply user_id, the
 // API layer stamps it on before writing.
@@ -116,6 +144,13 @@ export interface Database {
         Row: InventoryItem;
         Insert: InventoryItemDbInsert;
         Update: InventoryItemUpdate;
+        Relationships: [];
+      };
+      food_storage_rules: {
+        Row: FoodStorageRule;
+        Insert: Partial<FoodStorageRule> &
+          Pick<FoodStorageRule, 'category' | 'preparation_state' | 'storage_location' | 'typical_shelf_life_days'>;
+        Update: Partial<FoodStorageRule>;
         Relationships: [];
       };
     };

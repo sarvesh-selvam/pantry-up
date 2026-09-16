@@ -9,9 +9,15 @@ interface Props {
   item: InventoryItem;
   onPress: () => void;
   onDelete: () => void;
+  /** Quick-confirm without opening the full edit screen — only rendered
+   * when the item is uncertain. Correcting a field still happens via
+   * onPress (the edit screen), which also clears the flag on save. */
+  onVerify: () => void;
 }
 
-export function InventoryItemRow({ item, onPress, onDelete }: Props) {
+export function InventoryItemRow({ item, onPress, onDelete, onVerify }: Props) {
+  const uncertain = isUncertain(item);
+
   return (
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -23,10 +29,21 @@ export function InventoryItemRow({ item, onPress, onDelete }: Props) {
           <Text style={styles.name} numberOfLines={1}>
             {item.display_name}
           </Text>
-          {isUncertain(item) && <UncertaintyBadge />}
+          {uncertain && <UncertaintyBadge />}
         </View>
         <Text style={styles.quantity}>{formatQuantity(item)}</Text>
       </View>
+      {uncertain && (
+        <Pressable
+          onPress={onVerify}
+          hitSlop={12}
+          style={styles.verifyButton}
+          accessibilityRole="button"
+          accessibilityLabel={`Verify ${item.display_name}`}
+        >
+          <Ionicons name="checkmark-circle-outline" size={20} color={colors.primary} />
+        </Pressable>
+      )}
       <Pressable
         onPress={onDelete}
         hitSlop={12}
@@ -71,6 +88,9 @@ const styles = StyleSheet.create({
   quantity: {
     fontSize: 14,
     color: colors.textMuted,
+  },
+  verifyButton: {
+    padding: spacing.xs,
   },
   deleteButton: {
     padding: spacing.xs,
