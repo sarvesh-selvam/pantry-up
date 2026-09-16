@@ -12,6 +12,10 @@ A mobile-first, inventory-aware kitchen app.
   Sous Chef (a tool-calling chat assistant), pantry-aware recipe
   generation, recipe-to-inventory matching, and Home's "What should I
   cook?" suggestions.
+- **Phase 4: Cooking Loop** — Cooking Mode with step timers, a
+  confirm-before-mutate inventory deduction flow, leftovers, and cook
+  History. This is the first phase where the full core loop (Capture →
+  Understand → Rescue → Decide → Cook → Reconcile) works end to end.
 
 ## Stack
 
@@ -27,21 +31,28 @@ A mobile-first, inventory-aware kitchen app.
 ```
 app/              Screens and routes (expo-router)
   (auth)/         Login / signup, shown when signed out
-  (tabs)/         Home, Search, Pantry, Cookbook, Macros tabs
+  (tabs)/         Home, Search (→ History), Pantry, Cookbook, Macros tabs
     pantry/       Pantry list, add/edit item, Quick Add, Receipt Scan, review
-  sous-chef.tsx   Sous Chef chat (modal, reachable from Home)
-  recipe/[id]     Recipe detail screen (static — no cooking mode yet)
+  sous-chef.tsx   Sous Chef chat (modal, reachable from Home or mid-cook,
+                   optionally grounded in the recipe being cooked)
+  recipe/[id]     Recipe detail screen — ingredients live-matched, "Cook This"
+  recipe/[id]/cook     Cooking Mode: step-by-step, timers, inline ingredients
+  recipe/[id]/finish   Finish Cooking: servings → mutation proposal →
+                        confirm → optional leftovers, in that order
 components/       Shared UI components (incl. RecipeCard, reused by Sous
-                   Chef's inline cards and Home's suggestion cards)
+                   Chef's inline cards and Home's suggestion cards;
+                   StepTimer and TechniqueVideoSlot for Cooking Mode)
 constants/        Design tokens (colors, spacing)
 lib/              Supabase client, auth/inventory contexts, API helpers,
-                   the Quick Add parser, the receipt scanner, and the
-                   client-side recipe-to-inventory matching engine
+                   the Quick Add parser, the receipt scanner, the
+                   client-side recipe-to-inventory matching engine, and the
+                   inventory mutation proposal engine (cookingMutations.ts)
 types/            Hand-written types mirroring the Postgres schema
 db/migrations/    SQL migrations, applied in filename order
 supabase/functions/  Edge Functions (Deno):
                       quick-add-parse, receipt-scan — Phase 2 normalization
-                      sous-chef-chat — tool-calling recipe assistant
+                      sous-chef-chat — tool-calling recipe assistant,
+                      optionally grounded in a recipe being cooked
                       recipe-suggestions — Home's automatic suggestions
                       _shared/ — normalization pipeline, recipe generation,
                       dietary-restriction enforcement, matching engine (Deno
@@ -90,6 +101,8 @@ supabase/functions/  Edge Functions (Deno):
    db/migrations/0007_receipts_storage.sql
    db/migrations/0008_recipes.sql
    db/migrations/0009_user_preferences.sql
+   db/migrations/0010_cook_events.sql
+   db/migrations/0011_inventory_source_cooking.sql
    ```
 
    (If you have the Supabase CLI linked to your project — `supabase link` —
@@ -97,14 +110,17 @@ supabase/functions/  Edge Functions (Deno):
    push` instead.)
 
    Together these create `users`, `canonical_foods`, `inventory_items`,
-   `food_storage_rules`, `recipes`, and `user_preferences`; enable Row
-   Level Security everywhere (including a private `receipts` Storage
-   bucket scoped to each user's own folder); seed ~70 canonical
+   `food_storage_rules`, `recipes`, `user_preferences`, and `cook_events`;
+   enable Row Level Security everywhere (including a private `receipts`
+   Storage bucket scoped to each user's own folder); seed ~70 canonical
    ingredients and ~100 shelf-life reference rows; wire up the
    `users`-profile-on-signup trigger (extended in `0009` to also create an
-   empty `user_preferences` row); and install the deterministic, non-LLM
+   empty `user_preferences` row); install the deterministic, non-LLM
    trigger that computes `expiry_estimated` from `food_storage_rules`
-   whenever an item's food/storage/prep/date fields change.
+   whenever an item's food/storage/prep/date fields change; and add
+   `'cooking'` to the `inventory_source` enum (its own migration —
+   `0011` — since Postgres won't let a new enum value be used in the same
+   transaction that adds it) for leftovers created from Cooking Mode.
 
 4. In Supabase Auth settings, email/password sign-in is enabled by default.
    If you want to skip email confirmation during local testing, turn off
@@ -166,13 +182,17 @@ of `lib/recipeMatching.ts` — and `_shared/pantryContext.ts`). Neither
 writes to `recipes` either — the client saves on the user's tap, after
 seeing the card.
 
-- **`sous-chef-chat`** — input `{ messages: {role, content}[] }` (full
-  text-only history, stateless per request — see the function's header
-  comment for why tool calls aren't replayed across turns). Runs a manual
-  Claude tool-calling loop with six tools (`get_inventory`,
-  `get_rescue_items`, `get_user_preferences`, `generate_recipe`,
-  `match_recipe_to_inventory`, `create_shopping_items` — the last is a
-  stub, see below) and returns `{ reply, recipe }`.
+- **`sous-chef-chat`** — input `{ messages: {role, content}[], recipeContext?:
+  {title, ingredients, instructions} }` (full text-only history, stateless
+  per request — see the function's header comment for why tool calls
+  aren't replayed across turns). `recipeContext` is set when Sous Chef is
+  opened mid-cook (Cooking Mode's "Ask Sous Chef") and is folded into the
+  system prompt so answers — substitutions, "what does simmer mean?" — are
+  grounded in that specific recipe. Runs a manual Claude tool-calling loop
+  with six tools (`get_inventory`, `get_rescue_items`,
+  `get_user_preferences`, `generate_recipe`, `match_recipe_to_inventory`,
+  `create_shopping_items` — the last is a stub, see below) and returns
+  `{ reply, recipe }`.
 - **`recipe-suggestions`** — input `{}`. No chat, no tool loop: directly
   calls the same `generate_recipe`/matching pipeline Sous Chef's tools use,
   with rescue items + pantry as implicit context, to produce Home's 3-5
@@ -236,10 +256,35 @@ shopping list feature is a later phase.
 - Dietary restrictions/allergies are structurally enforced — see Edge
   Functions above — not just prompted
 
-Search, Cookbook, and Macros are still placeholder "Coming soon" screens —
-their functionality lands in later phases. Recipes can be viewed but not
-yet cooked (no timers, no cooking mode, no inventory deduction) — that's
-Phase 4.
+**Phase 4**
+- Cooking Mode (`app/recipe/[id]/cook.tsx`): one step at a time, prev/next
+  navigation, a countdown timer wherever a step's text implies a duration
+  (`lib/parseStepDuration.ts`), inline ingredient quantities for that step
+  (`lib/matchIngredientsToStep.ts`), a technique-video slot (placeholder —
+  real lookup is Phase 7), and "Ask Sous Chef" grounded in the recipe
+  currently being cooked
+- Finish Cooking (`app/recipe/[id]/finish.tsx`): asks servings made/eaten,
+  proposes specific inventory deductions from specific matched
+  `inventory_items` (`lib/cookingMutations.ts` — deterministic, no LLM),
+  shown as an editable/uncheckable checklist. **Nothing is deducted until
+  the user taps "Update Pantry"** — no silent decrementing, hard rule.
+  Precise-quantity items are reduced or removed if fully used;
+  approximate-state items step down one level (Full → Mostly Full → Half →
+  Low → Almost Empty, floored at Almost Empty rather than disappearing)
+- If servings made > servings eaten, offers to save the difference as a new
+  `leftover` inventory item (`source: 'cooking'`) in the fridge — appears
+  in Pantry immediately and becomes Rescue-Row-eligible once it's 2+ days
+  old, same aging rule as any other leftover
+- Every completed cook creates a `cook_events` row (servings, applied
+  mutations, any leftovers created) — viewable in a real History list,
+  which now lives in the Search tab (see Known limitations) as groundwork
+  for Phase 5's Global Search
+- Verified no regression: opening, generating, and saving a recipe still
+  never touch inventory — only a confirmed "Update Pantry" tap does (see
+  Known limitations for how this was checked)
+
+Cookbook and Macros are still placeholder "Coming soon" screens — their
+functionality lands in later phases.
 
 ## Known limitations
 
@@ -277,3 +322,33 @@ Phase 4.
   results (intentional — see `sous-chef-chat`'s header comment — but it
   does mean the model can't literally "remember" a tool result verbatim
   from three turns ago, only what its own prior text said).
+- History lives in the Search tab (`app/(tabs)/search.tsx`) rather than a
+  dedicated tab — the tab bar still says "Search" and the screen says so
+  explicitly ("Search across your cooking history lands in a later
+  phase"), so it doesn't read as finished Search functionality. Chosen as
+  the architecturally simplest home for it now, and it's real, queryable
+  `cook_events` data that Phase 5's Global Search will build on directly.
+- No regression check for "generate/save/open a recipe never touches
+  inventory" is a manual code-path audit (`grep` for every
+  `editItem`/`removeItem`/`addItem` call site), not an automated test —
+  this repo has no test suite yet. The audit found exactly the expected
+  call sites: Pantry's own CRUD screens (pre-existing) and
+  `recipe/[id]/finish.tsx` (this phase, behind the "Update Pantry"
+  confirmation) — nothing in recipe generation, viewing, or saving.
+- `proposeInventoryMutations` (`lib/cookingMutations.ts`) scales
+  quantity-mode deductions by `servingsPrepared / recipe.servings`, but
+  state-mode step-downs (Full → Mostly Full, etc.) are servings-agnostic —
+  "used some of the half-full jar" doesn't have a meaningful linear scale.
+  When multiple inventory items match one ingredient with only a
+  `quantity_state` (no numeric quantity), only the first matched item is
+  stepped down; picking how to split a state-based "some of it" across
+  several packages isn't meaningful without real quantities.
+- Cooking Mode's per-step timer and ingredient-inline matching are both
+  regex/substring heuristics (`extractStepDurationSeconds`,
+  `findIngredientsInStep`) — good enough for "where applicable," not a
+  recipe-instruction parser. A step like "reduce heat and cook 5-7 more
+  minutes, stirring occasionally" gets a timer; oddly-phrased durations may
+  not.
+- No swipe gestures in Cooking Mode — Previous/Next are buttons only,
+  consistent with the rest of the app's approach to gesture-vs-button
+  tradeoffs (see Pantry's delete-by-button instead of swipe, Phase 1).
