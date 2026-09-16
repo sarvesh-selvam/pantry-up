@@ -38,6 +38,22 @@ export type RecipeIngredient = {
   verification_status: 'confirmed' | 'needs_verification';
 };
 
+/** Deterministic, calculated nutrition per serving — never LLM-invented.
+ * See lib/nutritionCalculation.ts. `is_partial` is true when one or more
+ * ingredients couldn't be matched to canonical_food_id, had no seeded
+ * nutrition_data row, or had a quantity/unit that couldn't be confidently
+ * converted to grams — the totals below only reflect what COULD be
+ * computed, and the UI must say so rather than presenting them as exact. */
+export type RecipeNutrition = {
+  calories_per_serving: number;
+  protein_g_per_serving: number;
+  carbs_g_per_serving: number;
+  fat_g_per_serving: number;
+  is_partial: boolean;
+  matched_ingredient_count: number;
+  total_ingredient_count: number;
+};
+
 export type GeneratedContext = {
   /** The free-text request/constraints this recipe was generated from. */
   constraints: string;
@@ -62,9 +78,10 @@ export type Recipe = {
   cook_time: number | null;
   ingredients: RecipeIngredient[];
   instructions: string[];
-  nutrition: unknown | null;
+  nutrition: RecipeNutrition | null;
   youtube_metadata: unknown | null;
   tags: string[];
+  is_favorite: boolean;
   generated_context: GeneratedContext | null;
   created_at: string;
   updated_at: string;
@@ -91,6 +108,7 @@ export type RecipeSuggestion = {
   missing_ingredient_count: number;
   why_this_works: string;
   rescued_ingredient_names: string[];
+  nutrition: RecipeNutrition | null;
 };
 
 export type RecipeMatchResult = {

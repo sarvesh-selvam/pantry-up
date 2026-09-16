@@ -121,6 +121,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
         storage_location: 'fridge',
         source: draft.source,
         raw_input_text: draft.rawText,
+        source_recipe_id: null,
         purchased_at: null,
         opened_at: null,
         expiry_user_provided: null,

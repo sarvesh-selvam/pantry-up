@@ -89,6 +89,9 @@ export type InventoryItem = {
   /** Exactly what the user typed (Quick Add) or what OCR/vision extracted
    * (receipt scan) for this item — never overwritten by normalization. */
   raw_input_text: string | null;
+  /** Set on leftovers created from Finish Cooking, so eating them later can
+   * compute real nutrition from the original recipe rather than guessing. */
+  source_recipe_id: string | null;
   created_at: string;
   updated_at: string;
   last_verified_at: string | null;
@@ -105,6 +108,28 @@ export type FoodStorageRule = {
   is_safety_critical: boolean;
   source_note: string;
   created_at: string;
+};
+
+export type NutritionData = {
+  id: string;
+  canonical_food_id: string;
+  calories_per_100g: number;
+  protein_g_per_100g: number;
+  carbs_g_per_100g: number;
+  fat_g_per_100g: number;
+  source_note: string;
+  created_at: string;
+};
+
+export type DailyNutrition = {
+  id: string;
+  user_id: string;
+  log_date: string;
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  updated_at: string;
 };
 
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced';
@@ -185,6 +210,19 @@ export interface Database {
         Row: CookEvent;
         Insert: CookEventDbInsert;
         Update: Partial<Omit<CookEvent, 'id' | 'user_id' | 'created_at'>>;
+        Relationships: [];
+      };
+      nutrition_data: {
+        Row: NutritionData;
+        Insert: Partial<NutritionData> &
+          Pick<NutritionData, 'canonical_food_id' | 'calories_per_100g' | 'protein_g_per_100g' | 'carbs_g_per_100g' | 'fat_g_per_100g'>;
+        Update: Partial<NutritionData>;
+        Relationships: [];
+      };
+      daily_nutrition: {
+        Row: DailyNutrition;
+        Insert: Partial<DailyNutrition> & Pick<DailyNutrition, 'user_id' | 'log_date'>;
+        Update: Partial<DailyNutrition>;
         Relationships: [];
       };
     };

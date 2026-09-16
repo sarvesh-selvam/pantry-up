@@ -66,6 +66,7 @@ export default function AddItemScreen() {
         storage_location: storageLocation,
         source: 'manual',
         raw_input_text: null,
+        source_recipe_id: null,
         purchased_at: null,
         opened_at: null,
         expiry_user_provided: null,

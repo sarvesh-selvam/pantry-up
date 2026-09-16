@@ -29,6 +29,21 @@ export type LeftoverRecord = {
   quantity_unit: string | null;
 };
 
+/** Nutrition actually logged for a consumption event — computed
+ * deterministically from the recipe's per-serving RecipeNutrition ×
+ * servings consumed (see lib/nutritionLogging.ts). Only ever written when
+ * consumption is confirmed, never on recipe generation/save. */
+export type ConsumedNutrition = {
+  calories: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  servings_consumed: number;
+  /** Mirrors the source RecipeNutrition's is_partial — some ingredients
+   * may not have contributed to the per-serving figures this was scaled from. */
+  is_partial: boolean;
+};
+
 export type CookEvent = {
   id: string;
   user_id: string;
@@ -37,7 +52,7 @@ export type CookEvent = {
   servings_prepared: number | null;
   servings_consumed: number | null;
   inventory_mutations: AppliedMutation[];
-  nutrition_consumed: unknown | null;
+  nutrition_consumed: ConsumedNutrition | null;
   leftovers_created: LeftoverRecord[] | null;
   user_feedback: string | null;
   created_at: string;

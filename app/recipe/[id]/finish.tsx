@@ -167,6 +167,7 @@ export default function FinishCookingScreen() {
         storage_location: 'fridge',
         source: 'cooking',
         raw_input_text: null,
+        source_recipe_id: recipe.id,
         purchased_at: null,
         opened_at: null,
         expiry_user_provided: null,

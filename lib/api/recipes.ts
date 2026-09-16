@@ -15,9 +15,10 @@ export function suggestionToRecipeInsert(suggestion: RecipeSuggestion, constrain
     cook_time: suggestion.cook_time,
     ingredients: suggestion.ingredients,
     instructions: suggestion.instructions,
-    nutrition: null,
+    nutrition: suggestion.nutrition,
     youtube_metadata: null,
     tags: suggestion.tags,
+    is_favorite: false,
     generated_context: {
       constraints,
       inventory_snapshot_summary: suggestion.pantry_coverage_label,
@@ -42,6 +43,26 @@ export async function createRecipe(userId: string, recipe: RecipeInsert): Promis
 
 export async function fetchRecipeById(id: string): Promise<Recipe | null> {
   const { data, error } = await supabase.from('recipes').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/** All of the user's saved recipes for Cookbook — AI-generated (Sous
+ * Chef/Home suggestions), manual, and cookbook_scan alike; they're all
+ * just rows in the same table, distinguished only by source_type. */
+export async function fetchUserRecipes(): Promise<Recipe[]> {
+  const { data, error } = await supabase.from('recipes').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function setRecipeFavorite(id: string, isFavorite: boolean): Promise<Recipe> {
+  const { data, error } = await supabase
+    .from('recipes')
+    .update({ is_favorite: isFavorite })
+    .eq('id', id)
+    .select('*')
+    .single();
   if (error) throw error;
   return data;
 }
