@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import type { Recipe, RecipeInsert, RecipeSuggestion } from '../../types/recipe';
+import type { Recipe, RecipeInsert, RecipeSuggestion, RecipeYoutubeMetadata } from '../../types/recipe';
 
 /** Maps a Sous Chef / Home suggestion payload to what `recipes` expects on
  * insert. `constraints` is the user's original request (or a fixed label
@@ -16,7 +16,7 @@ export function suggestionToRecipeInsert(suggestion: RecipeSuggestion, constrain
     ingredients: suggestion.ingredients,
     instructions: suggestion.instructions,
     nutrition: suggestion.nutrition,
-    youtube_metadata: null,
+    youtube_metadata: suggestion.youtube_metadata,
     tags: suggestion.tags,
     is_favorite: false,
     generated_context: {
@@ -60,6 +60,26 @@ export async function setRecipeFavorite(id: string, isFavorite: boolean): Promis
   const { data, error } = await supabase
     .from('recipes')
     .update({ is_favorite: isFavorite })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Persists a recipe-videos lookup result onto an already-saved recipe —
+ * the cache Phase 7's spec asks for ("don't re-search every time the
+ * recipe is viewed"). Called after a lazy fetch on first detail-screen
+ * view, or after a manual refresh; never called from generation, since
+ * generated recipes never carry youtube_metadata until they're saved and
+ * viewed (or, for Sous Chef, looked up client-side right after the reply). */
+export async function updateRecipeYoutubeMetadata(
+  id: string,
+  youtubeMetadata: RecipeYoutubeMetadata
+): Promise<Recipe> {
+  const { data, error } = await supabase
+    .from('recipes')
+    .update({ youtube_metadata: youtubeMetadata })
     .eq('id', id)
     .select('*')
     .single();

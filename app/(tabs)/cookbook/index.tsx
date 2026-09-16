@@ -124,6 +124,7 @@ export default function CookbookScreen() {
                     why_this_works: recipe.generated_context?.why_this_works ?? '',
                     rescued_ingredient_names: [],
                     nutrition: recipe.nutrition,
+                    youtube_metadata: recipe.youtube_metadata,
                   }}
                   variant="compact"
                   style={styles.gridCard}
