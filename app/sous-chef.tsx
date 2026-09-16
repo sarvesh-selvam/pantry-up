@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,8 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { RecipeCard } from '../components/RecipeCard';
 import { colors, radii, spacing } from '../constants/theme';
 import { useAuth } from '../lib/auth/AuthContext';
-import { createRecipe, suggestionToRecipeInsert } from '../lib/api/recipes';
-import { sendSousChefMessage, type SousChefMessage } from '../lib/sousChef';
+import { createRecipe, fetchRecipeById, suggestionToRecipeInsert } from '../lib/api/recipes';
+import { sendSousChefMessage, type SousChefMessage, type SousChefRecipeContext } from '../lib/sousChef';
 import type { RecipeSuggestion } from '../types/recipe';
 
 interface DisplayMessage {
@@ -30,12 +30,35 @@ interface DisplayMessage {
 export default function SousChefScreen() {
   const router = useRouter();
   const { session } = useAuth();
+  const { recipeId } = useLocalSearchParams<{ recipeId?: string }>();
+  const [recipeContext, setRecipeContext] = useState<SousChefRecipeContext | null>(null);
+
+  useEffect(() => {
+    if (!recipeId) return;
+    fetchRecipeById(recipeId)
+      .then((recipe) => {
+        if (!recipe) return;
+        setRecipeContext({
+          title: recipe.title,
+          ingredients: recipe.ingredients.map(
+            (ing) =>
+              `${ing.quantity_value != null ? `${ing.quantity_value}${ing.quantity_unit ? ` ${ing.quantity_unit}` : ''} ` : ''}${ing.display_name}`
+          ),
+          instructions: recipe.instructions,
+        });
+      })
+      .catch(() => {
+        // Non-fatal — chat still works without recipe grounding.
+      });
+  }, [recipeId]);
+
   const [messages, setMessages] = useState<DisplayMessage[]>([
     {
       key: 'intro',
       role: 'assistant',
-      content:
-        "Hi, I'm Sous Chef. Tell me what you're in the mood for — e.g. \"something spicy, 30 minutes, no chicken\" — and I'll suggest something using what's in your pantry.",
+      content: recipeId
+        ? "I'm here if you have a question about this recipe — substitutions, technique, timing, anything."
+        : "Hi, I'm Sous Chef. Tell me what you're in the mood for — e.g. \"something spicy, 30 minutes, no chicken\" — and I'll suggest something using what's in your pantry.",
     },
   ]);
   const [input, setInput] = useState('');
@@ -54,7 +77,7 @@ export default function SousChefScreen() {
 
     try {
       const history: SousChefMessage[] = nextMessages.map((m) => ({ role: m.role, content: m.content }));
-      const { reply, recipe } = await sendSousChefMessage(history);
+      const { reply, recipe } = await sendSousChefMessage(history, recipeContext ?? undefined);
       setMessages((prev) => [
         ...prev,
         { key: `${Date.now()}-assistant`, role: 'assistant', content: reply, recipe },
@@ -97,6 +120,14 @@ export default function SousChefScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
+      {recipeContext && (
+        <View style={styles.contextBanner}>
+          <Ionicons name="restaurant-outline" size={14} color={colors.primary} />
+          <Text style={styles.contextBannerText} numberOfLines={1}>
+            Cooking: {recipeContext.title}
+          </Text>
+        </View>
+      )}
       <FlatList
         data={messages}
         keyExtractor={(m) => m.key}
@@ -158,6 +189,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  contextBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: `${colors.primary}14`,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  contextBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.primary,
+    flexShrink: 1,
   },
   list: {
     padding: spacing.md,

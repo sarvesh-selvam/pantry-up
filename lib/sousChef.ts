@@ -13,14 +13,27 @@ export interface SousChefMessage {
   content: string;
 }
 
+/** The recipe currently being cooked, passed through when Sous Chef is
+ * opened mid-cook (Cooking Mode's "Ask Sous Chef") so answers — "what does
+ * simmer mean?", "can I substitute Greek yogurt?" — are grounded in this
+ * specific recipe rather than requiring the user to re-describe it. */
+export interface SousChefRecipeContext {
+  title: string;
+  ingredients: string[];
+  instructions: string[];
+}
+
 export interface SousChefReply {
   reply: string;
   recipe: RecipeSuggestion | null;
 }
 
-export async function sendSousChefMessage(history: SousChefMessage[]): Promise<SousChefReply> {
+export async function sendSousChefMessage(
+  history: SousChefMessage[],
+  recipeContext?: SousChefRecipeContext
+): Promise<SousChefReply> {
   const { data, error } = await supabase.functions.invoke<SousChefReply>('sous-chef-chat', {
-    body: { messages: history },
+    body: { messages: history, recipeContext: recipeContext ?? null },
   });
 
   if (error) {

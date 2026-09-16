@@ -37,6 +37,26 @@ If the user is just chatting and hasn't asked for a recipe, respond conversation
 
 create_shopping_items is not a real feature yet — if the user asks to add missing ingredients to a shopping list, call it anyway (it explains that's coming in a later phase) rather than claiming you did something you didn't.`;
 
+interface RecipeContext {
+  title: string;
+  ingredients: string[];
+  instructions: string[];
+}
+
+function buildSystemPrompt(recipeContext: RecipeContext | null): string {
+  if (!recipeContext) return SYSTEM_PROMPT;
+
+  return `${SYSTEM_PROMPT}
+
+The user is currently cooking this recipe in Cooking Mode — ground your answers in it (ingredient substitutions, technique explanations, timing questions, etc.) without needing to call generate_recipe again unless they explicitly ask for a different recipe:
+
+Title: ${recipeContext.title}
+Ingredients:
+${recipeContext.ingredients.map((ing) => `- ${ing}`).join('\n')}
+Instructions:
+${recipeContext.instructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
+}
+
 const TOOLS: Anthropic.Tool[] = [
   {
     name: 'get_inventory',
@@ -190,17 +210,19 @@ async function executeTool(name: string, input: Record<string, unknown>, ctx: Pa
 async function runOrchestration(
   anthropic: Anthropic,
   history: Anthropic.MessageParam[],
-  ctx: PantryContext
+  ctx: PantryContext,
+  recipeContext: RecipeContext | null
 ): Promise<{ reply: string; recipe: RecipeSuggestionPayload | null }> {
   const messages: Anthropic.MessageParam[] = [...history];
   let lastGeneratedRecipe: GeneratedRecipe | null = null;
+  const systemPrompt = buildSystemPrompt(recipeContext);
 
   for (let iteration = 0; iteration < MAX_LOOP_ITERATIONS; iteration++) {
     const response = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,
       output_config: { effort: 'medium' },
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       tools: TOOLS,
       messages,
     });
@@ -265,10 +287,23 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Missing Authorization header' }, 401);
     }
 
-    const { messages } = await req.json();
+    const { messages, recipeContext: rawRecipeContext } = await req.json();
     if (!Array.isArray(messages) || messages.length === 0) {
       return jsonResponse({ error: '"messages" must be a non-empty array' }, 400);
     }
+
+    const recipeContext: RecipeContext | null =
+      typeof rawRecipeContext === 'object' &&
+      rawRecipeContext !== null &&
+      typeof rawRecipeContext.title === 'string' &&
+      Array.isArray(rawRecipeContext.ingredients) &&
+      Array.isArray(rawRecipeContext.instructions)
+        ? {
+            title: rawRecipeContext.title,
+            ingredients: rawRecipeContext.ingredients.filter((v: unknown): v is string => typeof v === 'string'),
+            instructions: rawRecipeContext.instructions.filter((v: unknown): v is string => typeof v === 'string'),
+          }
+        : null;
 
     const history: Anthropic.MessageParam[] = messages
       .filter(
@@ -294,7 +329,7 @@ Deno.serve(async (req: Request) => {
 
     const ctx = await loadPantryContext(supabase, user.id);
     const anthropic = getAnthropicClient();
-    const { reply, recipe } = await runOrchestration(anthropic, history, ctx);
+    const { reply, recipe } = await runOrchestration(anthropic, history, ctx, recipeContext);
 
     return jsonResponse({ reply, recipe });
   } catch (err) {

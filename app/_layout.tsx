@@ -19,6 +19,8 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="sous-chef" options={{ presentation: 'modal', headerShown: true, title: 'Sous Chef' }} />
             <Stack.Screen name="recipe/[id]" options={{ headerShown: true, title: 'Recipe' }} />
+            <Stack.Screen name="recipe/[id]/cook" options={{ headerShown: false }} />
+            <Stack.Screen name="recipe/[id]/finish" options={{ headerShown: true, title: 'Finish Cooking' }} />
           </Stack>
         </InventoryProvider>
       </AuthProvider>

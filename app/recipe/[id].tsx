@@ -1,6 +1,6 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../constants/theme';
 import { fetchRecipeById } from '../../lib/api/recipes';
 import { useInventory } from '../../lib/inventory/InventoryContext';
@@ -17,6 +17,7 @@ const STATUS_ORDER: IngredientMatchStatus[] = ['have', 'verify', 'missing'];
 
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { items } = useInventory();
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,9 +128,13 @@ export default function RecipeDetailScreen() {
         </View>
       )}
 
-      <View style={styles.cookButton}>
-        <Text style={styles.cookButtonText}>Cook This — Coming soon</Text>
-      </View>
+      <Pressable
+        style={styles.cookButton}
+        onPress={() => router.push(`/recipe/${id}/cook`)}
+        accessibilityRole="button"
+      >
+        <Text style={styles.cookButtonText}>Cook This</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -247,13 +252,14 @@ const styles = StyleSheet.create({
   },
   cookButton: {
     marginTop: spacing.lg,
-    backgroundColor: colors.border,
+    backgroundColor: colors.primary,
     borderRadius: radii.md,
     paddingVertical: spacing.sm,
     alignItems: 'center',
   },
   cookButtonText: {
-    color: colors.textMuted,
-    fontWeight: '600',
+    color: colors.primaryText,
+    fontWeight: '700',
+    fontSize: 15,
   },
 });
