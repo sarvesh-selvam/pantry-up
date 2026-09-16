@@ -177,6 +177,7 @@ async function executeTool(name: string, input: Record<string, unknown>, ctx: Pa
           cuisineWeights: ctx.cuisineWeights,
           skillLevel: ctx.skillLevel,
           canonicalFoods: ctx.canonicalFoods,
+          nutritionData: ctx.nutritionData,
         },
         1
       );

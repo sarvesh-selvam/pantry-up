@@ -17,6 +17,7 @@
 import { CLAUDE_MODEL, extractResponseText, getAnthropicClient } from './anthropic.ts';
 import { buildCanonicalFoodsReference, type CanonicalFoodRef } from './matching.ts';
 import { findDietaryViolations, splitEnforceableRestrictions } from './dietaryRestrictions.ts';
+import { computeRecipeNutrition, type NutritionDataRow, type RecipeNutrition } from './nutritionCalculation.ts';
 
 const MAX_GENERATION_ATTEMPTS = 3;
 
@@ -33,6 +34,7 @@ export interface GenerationContext {
   cuisineWeights: Record<string, number>;
   skillLevel: string;
   canonicalFoods: CanonicalFoodRef[];
+  nutritionData: NutritionDataRow[];
 }
 
 export interface GeneratedRecipeIngredient {
@@ -55,6 +57,9 @@ export interface GeneratedRecipe {
   tags: string[];
   why_this_works: string;
   rescued_ingredient_names: string[];
+  /** Deterministic — computed from nutrition_data after generation, never
+   * asked of or invented by the model. See computeNutritionForRecipes below. */
+  nutrition: RecipeNutrition | null;
 }
 
 function buildSystemPrompt(ctx: GenerationContext, recipeCount: number, correction?: string): string {
@@ -181,10 +186,21 @@ function parseGeneratedRecipes(
       rescued_ingredient_names: Array.isArray(record.rescued_ingredient_names)
         ? record.rescued_ingredient_names.filter((n: unknown): n is string => typeof n === 'string')
         : [],
+      nutrition: null, // filled in by computeNutritionForRecipes below, after parsing
     });
   }
 
   return recipes;
+}
+
+/** Computes deterministic per-serving nutrition for each recipe from
+ * nutrition_data — a pure post-processing step over the model's already-
+ * validated output, never something the model is asked to produce itself. */
+function computeNutritionForRecipes(recipes: GeneratedRecipe[], nutritionData: NutritionDataRow[]): GeneratedRecipe[] {
+  return recipes.map((recipe) => ({
+    ...recipe,
+    nutrition: computeRecipeNutrition(recipe.ingredients, nutritionData, recipe.servings),
+  }));
 }
 
 async function requestRecipesFromModel(
@@ -203,7 +219,8 @@ async function requestRecipesFromModel(
     messages: [{ role: 'user', content: `Generate ${recipeCount} recipe(s) now.` }],
   });
 
-  return parseGeneratedRecipes(extractResponseText(response), validIds);
+  const parsed = parseGeneratedRecipes(extractResponseText(response), validIds);
+  return computeNutritionForRecipes(parsed, ctx.nutritionData);
 }
 
 /**

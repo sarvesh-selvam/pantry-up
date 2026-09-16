@@ -9,11 +9,13 @@
 import { getUserSupabaseClient } from './supabaseClient.ts';
 import { getRescueRowEntries, type RescueInventoryItem } from './rescueRow.ts';
 import type { CanonicalFoodRef } from './matching.ts';
+import type { NutritionDataRow } from './nutritionCalculation.ts';
 
 export interface PantryContext {
   inventoryItems: Record<string, unknown>[];
   rescueItemNames: string[];
   canonicalFoods: CanonicalFoodRef[];
+  nutritionData: NutritionDataRow[];
   dietaryRestrictions: string[];
   cuisineWeights: Record<string, number>;
   skillLevel: string;
@@ -24,10 +26,11 @@ export async function loadPantryContext(
   supabase: ReturnType<typeof getUserSupabaseClient>,
   userId: string
 ): Promise<PantryContext> {
-  const [inventoryResult, canonicalFoodsResult, prefsResult] = await Promise.all([
+  const [inventoryResult, canonicalFoodsResult, prefsResult, nutritionResult] = await Promise.all([
     supabase.from('inventory_items').select('*'),
     supabase.from('canonical_foods').select('id, canonical_name, category, aliases'),
     supabase.from('user_preferences').select('*').eq('user_id', userId).maybeSingle(),
+    supabase.from('nutrition_data').select('canonical_food_id, calories_per_100g, protein_g_per_100g, carbs_g_per_100g, fat_g_per_100g'),
   ]);
 
   if (inventoryResult.error) {
@@ -38,6 +41,9 @@ export async function loadPantryContext(
   }
   if (prefsResult.error) {
     throw new Error(`Failed to load preferences: ${prefsResult.error.message}`);
+  }
+  if (nutritionResult.error) {
+    throw new Error(`Failed to load nutrition data: ${nutritionResult.error.message}`);
   }
 
   const items = (inventoryResult.data ?? []) as Record<string, unknown>[];
@@ -64,6 +70,7 @@ export async function loadPantryContext(
     inventoryItems: items,
     rescueItemNames,
     canonicalFoods: (canonicalFoodsResult.data ?? []) as CanonicalFoodRef[],
+    nutritionData: (nutritionResult.data ?? []) as NutritionDataRow[],
     dietaryRestrictions: prefs?.dietary_restrictions ?? [],
     cuisineWeights: prefs?.cuisine_weights ?? {},
     skillLevel: prefs?.skill_level ?? 'intermediate',

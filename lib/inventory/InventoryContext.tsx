@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { fetchCanonicalFoods } from '../api/canonicalFoods';
 import { fetchFoodStorageRules } from '../api/foodStorageRules';
+import { fetchNutritionData } from '../api/nutritionData';
 import {
   createInventoryItem,
   createInventoryItems,
@@ -23,6 +24,7 @@ import type {
   InventoryItem,
   InventoryItemInsert,
   InventoryItemUpdate,
+  NutritionData,
 } from '../../types/database';
 import type { QuickAddDraftItem } from '../../types/quickAdd';
 
@@ -30,6 +32,7 @@ interface InventoryContextValue {
   items: InventoryItem[];
   canonicalFoods: CanonicalFood[];
   foodStorageRules: FoodStorageRule[];
+  nutritionData: NutritionData[];
   isLoading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -50,6 +53,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [canonicalFoods, setCanonicalFoods] = useState<CanonicalFood[]>([]);
   const [foodStorageRules, setFoodStorageRules] = useState<FoodStorageRule[]>([]);
+  const [nutritionData, setNutritionData] = useState<NutritionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [quickAddDraft, setQuickAddDraft] = useState<QuickAddDraftItem[]>([]);
@@ -59,14 +63,16 @@ export function InventoryProvider({ children }: PropsWithChildren) {
     setIsLoading(true);
     setError(null);
     try {
-      const [inventoryItems, foods, rules] = await Promise.all([
+      const [inventoryItems, foods, rules, nutrition] = await Promise.all([
         fetchInventoryItems(),
         fetchCanonicalFoods(),
         fetchFoodStorageRules(),
+        fetchNutritionData(),
       ]);
       setItems(inventoryItems);
       setCanonicalFoods(foods);
       setFoodStorageRules(rules);
+      setNutritionData(nutrition);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load pantry data');
     } finally {
@@ -81,6 +87,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
       setItems([]);
       setCanonicalFoods([]);
       setFoodStorageRules([]);
+      setNutritionData([]);
       setIsLoading(false);
     }
   }, [userId, refresh]);
@@ -145,6 +152,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
       items,
       canonicalFoods,
       foodStorageRules,
+      nutritionData,
       isLoading,
       error,
       refresh,
@@ -159,6 +167,7 @@ export function InventoryProvider({ children }: PropsWithChildren) {
       items,
       canonicalFoods,
       foodStorageRules,
+      nutritionData,
       isLoading,
       error,
       refresh,

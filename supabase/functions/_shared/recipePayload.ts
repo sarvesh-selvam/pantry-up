@@ -4,6 +4,7 @@
 
 import { matchRecipeToInventory, type MatchInventoryItem } from './recipeMatching.ts';
 import type { GeneratedRecipe } from './recipeGeneration.ts';
+import type { RecipeNutrition } from './nutritionCalculation.ts';
 
 export interface RecipeSuggestionPayload {
   title: string;
@@ -19,6 +20,7 @@ export interface RecipeSuggestionPayload {
   missing_ingredient_count: number;
   why_this_works: string;
   rescued_ingredient_names: string[];
+  nutrition: RecipeNutrition | null;
 }
 
 export function buildRecipeSuggestionPayload(
@@ -40,5 +42,6 @@ export function buildRecipeSuggestionPayload(
     missing_ingredient_count: match.missingIngredientCount,
     why_this_works: recipe.why_this_works,
     rescued_ingredient_names: recipe.rescued_ingredient_names,
+    nutrition: recipe.nutrition,
   };
 }

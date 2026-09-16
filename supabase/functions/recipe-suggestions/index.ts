@@ -51,6 +51,7 @@ Deno.serve(async (req: Request) => {
         cuisineWeights: ctx.cuisineWeights,
         skillLevel: ctx.skillLevel,
         canonicalFoods: ctx.canonicalFoods,
+        nutritionData: ctx.nutritionData,
       },
       SUGGESTION_COUNT
     );
