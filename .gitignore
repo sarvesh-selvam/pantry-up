@@ -40,6 +40,10 @@ yarn-error.*
 # local progress tracker (see REQUIREMENTS.md for the tracked spec)
 PLAN.md
 
+# agent guidance files — kept local only, not published to the repo
+CLAUDE.md
+AGENTS.md
+
 # generated native folders
 /ios
 /android
