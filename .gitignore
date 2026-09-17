@@ -43,3 +43,6 @@ PLAN.md
 # generated native folders
 /ios
 /android
+
+# supabase cli local state
+supabase/.temp/
