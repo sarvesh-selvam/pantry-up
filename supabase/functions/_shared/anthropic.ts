@@ -1,6 +1,6 @@
 import Anthropic from 'npm:@anthropic-ai/sdk';
 
-export const CLAUDE_MODEL = 'claude-opus-5';
+export const CLAUDE_MODEL = 'claude-sonnet-5';
 
 /** First text block's content, or throws if the model didn't return one
  * (e.g. it only returned a refusal). */
