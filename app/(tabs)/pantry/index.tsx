@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,6 +13,8 @@ import {
   View,
 } from 'react-native';
 import { InventoryItemRow } from '../../../components/InventoryItemRow';
+import { SegmentedControl } from '../../../components/SegmentedControl';
+import { ShoppingListView } from '../../../components/ShoppingListView';
 import { colors, spacing } from '../../../constants/theme';
 import { useAuth } from '../../../lib/auth/AuthContext';
 import {
@@ -24,6 +26,13 @@ import { useInventory } from '../../../lib/inventory/InventoryContext';
 import { logLeftoverConsumption } from '../../../lib/nutritionLogging';
 import type { InventoryItem, StorageLocation } from '../../../types/database';
 
+type PantryView = 'kitchen' | 'buy';
+
+const VIEW_SEGMENTS: { value: PantryView; label: string }[] = [
+  { value: 'kitchen', label: 'In Kitchen' },
+  { value: 'buy', label: 'Need to Buy' },
+];
+
 interface Section {
   title: string;
   data: InventoryItem[];
@@ -31,6 +40,11 @@ interface Section {
 
 export default function PantryListScreen() {
   const router = useRouter();
+  // The active view lives in the route params (not local state) so other
+  // screens — e.g. recipe detail's "View list" link — can deep-link
+  // straight to Need to Buy.
+  const params = useLocalSearchParams<{ view?: string }>();
+  const view: PantryView = params.view === 'buy' ? 'buy' : 'kitchen';
   const { session } = useAuth();
   const { items, canonicalFoods, isLoading, error, refresh, removeItem, editItem } = useInventory();
   const [query, setQuery] = useState('');
@@ -113,102 +127,122 @@ export default function PantryListScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.actions}>
-        <Pressable
-          style={[styles.actionButton, styles.primaryAction]}
-          onPress={() => router.push('/(tabs)/pantry/add')}
-        >
-          <Ionicons name="add" size={18} color={colors.primaryText} />
-          <Text style={styles.primaryActionLabel}>Add Item</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.actionButton, styles.secondaryAction]}
-          onPress={() => router.push('/(tabs)/pantry/quick-add')}
-        >
-          <Ionicons name="flash-outline" size={18} color={colors.primary} />
-          <Text style={styles.secondaryActionLabel}>Quick Add</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.actionButton, styles.secondaryAction]}
-          onPress={() => router.push('/(tabs)/pantry/receipt-scan')}
-        >
-          <Ionicons name="receipt-outline" size={18} color={colors.primary} />
-          <Text style={styles.secondaryActionLabel}>Scan Receipt</Text>
-        </Pressable>
+      <View style={styles.segmentWrapper}>
+        <SegmentedControl
+          segments={VIEW_SEGMENTS}
+          value={view}
+          onChange={(next) => router.setParams({ view: next })}
+        />
       </View>
 
-      {items.length > 0 && (
-        <View style={styles.searchBar}>
-          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-          <TextInput
-            style={styles.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search your pantry"
-            placeholderTextColor={colors.textMuted}
-            autoCorrect={false}
-            autoCapitalize="none"
-            returnKeyType="search"
-            clearButtonMode="never"
-            accessibilityLabel="Search your pantry"
-          />
-          {query.length > 0 && (
-            <Pressable
-              onPress={() => setQuery('')}
-              hitSlop={12}
-              accessibilityRole="button"
-              accessibilityLabel="Clear search"
-            >
-              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-            </Pressable>
-          )}
-        </View>
-      )}
-
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      {isLoading && items.length === 0 ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : items.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>Your pantry is empty</Text>
-          <Text style={styles.emptySubtitle}>Add an item or try Quick Add to get started.</Text>
-        </View>
-      ) : sections.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>No matches</Text>
-          <Text style={styles.emptySubtitle}>Nothing in your pantry matches "{query.trim()}".</Text>
-        </View>
-      ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refresh} />}
-          renderSectionHeader={({ section }) => (
-            <Text style={styles.sectionHeader}>{section.title}</Text>
-          )}
-          renderItem={({ item }) => (
-            <InventoryItemRow
-              item={item}
-              onPress={() => router.push(`/(tabs)/pantry/${item.id}`)}
-              onDelete={() => confirmDelete(item)}
-              onVerify={() => verify(item)}
-              onAte={() => confirmAte(item)}
-            />
-          )}
-        />
-      )}
+      {view === 'buy' ? <ShoppingListView /> : renderKitchen()}
     </View>
   );
+
+  function renderKitchen() {
+    return (
+      <>
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.actionButton, styles.primaryAction]}
+            onPress={() => router.push('/(tabs)/pantry/add')}
+          >
+            <Ionicons name="add" size={18} color={colors.primaryText} />
+            <Text style={styles.primaryActionLabel}>Add Item</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.actionButton, styles.secondaryAction]}
+            onPress={() => router.push('/(tabs)/pantry/quick-add')}
+          >
+            <Ionicons name="flash-outline" size={18} color={colors.primary} />
+            <Text style={styles.secondaryActionLabel}>Quick Add</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.actionButton, styles.secondaryAction]}
+            onPress={() => router.push('/(tabs)/pantry/receipt-scan')}
+          >
+            <Ionicons name="receipt-outline" size={18} color={colors.primary} />
+            <Text style={styles.secondaryActionLabel}>Scan Receipt</Text>
+          </Pressable>
+        </View>
+
+        {items.length > 0 && (
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search your pantry"
+              placeholderTextColor={colors.textMuted}
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+              clearButtonMode="never"
+              accessibilityLabel="Search your pantry"
+            />
+            {query.length > 0 && (
+              <Pressable
+                onPress={() => setQuery('')}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {error && <Text style={styles.error}>{error}</Text>}
+
+        {isLoading && items.length === 0 ? (
+          <View style={styles.centered}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : items.length === 0 ? (
+          <View style={styles.centered}>
+            <Text style={styles.emptyTitle}>Your pantry is empty</Text>
+            <Text style={styles.emptySubtitle}>Add an item or try Quick Add to get started.</Text>
+          </View>
+        ) : sections.length === 0 ? (
+          <View style={styles.centered}>
+            <Text style={styles.emptyTitle}>No matches</Text>
+            <Text style={styles.emptySubtitle}>Nothing in your pantry matches "{query.trim()}".</Text>
+          </View>
+        ) : (
+          <SectionList
+            sections={sections}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refresh} />}
+            renderSectionHeader={({ section }) => (
+              <Text style={styles.sectionHeader}>{section.title}</Text>
+            )}
+            renderItem={({ item }) => (
+              <InventoryItemRow
+                item={item}
+                onPress={() => router.push(`/(tabs)/pantry/${item.id}`)}
+                onDelete={() => confirmDelete(item)}
+                onVerify={() => verify(item)}
+                onAte={() => confirmAte(item)}
+              />
+            )}
+          />
+        )}
+      </>
+    );
+  }
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  segmentWrapper: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
   },
   actions: {
     flexDirection: 'row',
