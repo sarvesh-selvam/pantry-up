@@ -173,6 +173,8 @@ supabase/functions/  Edge Functions (Deno):
    db/migrations/0016_item_dispositions.sql
    db/migrations/0017_recommendation_events.sql
    db/migrations/0018_recipes_equipment_needed.sql
+   db/migrations/0019_shopping_items.sql
+   db/migrations/0020_inventory_source_shopping_list.sql
    ```
 
    (If you have the Supabase CLI linked to your project — `supabase link` —
@@ -207,6 +209,10 @@ supabase/functions/  Edge Functions (Deno):
    `recommendation_events` (Home suggestions shown vs. saved); and
    `recipes.equipment_needed` (a controlled-vocabulary tag, always empty
    for manual/scanned recipes).
+
+   `0019`-`0020` (Shopping list) add `shopping_items` (one flat Need to Buy
+   list per user, RLS-scoped, no price fields) and `'shopping_list'` to the
+   `inventory_source` enum (its own migration, same reason as `0011`).
 
 4. In Supabase Auth settings, email/password sign-in is enabled by default.
    If you want to skip email confirmation during local testing, turn off
@@ -303,9 +309,12 @@ and discards + regenerates anything that matches (up to 3 attempts),
 before a recipe is ever returned to the client. See Known limitations for
 what that keyword list does and doesn't cover.
 
-`create_shopping_items` is intentionally a stub — it logs and returns
-`{ status: 'not_implemented' }` with no DB writes. The Need to Buy /
-shopping list feature is a later phase.
+`create_shopping_items` is intentionally still a stub — it logs and
+returns `{ status: 'not_implemented' }` with no DB writes. The shopping
+list itself exists (Pantry → Need to Buy), but AI-suggested shopping items
+are an explicit non-goal of that feature: items only get onto the list
+when the user types them or taps "Add Missing to Shopping List" on a
+recipe.
 
 **Phase 6 — Cookbook scanning and deterministic nutrition** (shares
 `_shared/nutritionCalculation.ts`, a Deno port of
@@ -614,7 +623,34 @@ through scoring.
   see Edge Functions above) — behavioral learning has no code path that
   could alter them, only an explicit Settings edit can
 
+### Shopping list
+
+- Pantry has an **In Kitchen / Need to Buy** toggle. Need to Buy is one
+  flat list (`shopping_items`), grouped by food category with an
+  Uncategorized group for free-text items and a Checked group at the
+  bottom
+- Typed items try for a canonical-food match (exact name/alias first,
+  then the same `quick-add-parse` function Quick Add uses), but a failed
+  match never blocks saving — the item just lands in Uncategorized
+- Recipe detail shows **Add Missing to Shopping List** whenever the live
+  matching engine finds Missing ingredients; it dedupes against unchecked
+  list items and always says what happened ("3 items added", "Already on
+  your list")
+- Checking an item off only toggles `is_checked` — no inventory side
+  effects. **Review & Add to Pantry** is the only path into
+  `inventory_items`: per-item quantity, storage location, and
+  include/skip, then confirmed items become new `source: 'shopping_list'`
+  inventory rows and are deleted from the list, while skipped ones go
+  back to unchecked
+
 ## Known limitations
+
+- The shopping list's Review & Add to Pantry always creates a *new*
+  inventory row per item rather than merging quantities into an existing
+  row for the same food. Deliberate: each purchase keeps its own
+  `purchased_at` and so its own expiry estimate, instead of a fresh carton
+  inheriting an older one's expiry. It does mean the same food can show up
+  as two rows in Pantry.
 
 - Shelf-life figures in `food_storage_rules` are hand-curated
   approximations of commonly published USDA FoodKeeper guidance, not a
