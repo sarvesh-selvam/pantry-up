@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,6 +9,7 @@ import {
   SectionList,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { InventoryItemRow } from '../../../components/InventoryItemRow';
@@ -31,11 +32,26 @@ interface Section {
 export default function PantryListScreen() {
   const router = useRouter();
   const { session } = useAuth();
-  const { items, isLoading, error, refresh, removeItem, editItem } = useInventory();
+  const { items, canonicalFoods, isLoading, error, refresh, removeItem, editItem } = useInventory();
+  const [query, setQuery] = useState('');
+
+  // Matching against the canonical food's name and aliases (not just what the
+  // user typed) is what makes "aubergine" find an item they saved as "eggplant".
+  const matchedItems = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return items;
+    const foodsById = new Map(canonicalFoods.map((food) => [food.id, food]));
+    return items.filter((item) => {
+      const food = item.canonical_food_id ? foodsById.get(item.canonical_food_id) : undefined;
+      return [item.display_name, item.category, food?.canonical_name, ...(food?.aliases ?? [])].some(
+        (field) => field?.toLowerCase().includes(needle)
+      );
+    });
+  }, [items, canonicalFoods, query]);
 
   const sections = useMemo<Section[]>(() => {
     const byLocation = new Map<StorageLocation, InventoryItem[]>();
-    for (const item of items) {
+    for (const item of matchedItems) {
       const list = byLocation.get(item.storage_location) ?? [];
       list.push(item);
       byLocation.set(item.storage_location, list);
@@ -46,7 +62,7 @@ export default function PantryListScreen() {
         data: byLocation.get(location) ?? [],
       })
     );
-  }, [items]);
+  }, [matchedItems]);
 
   function confirmDelete(item: InventoryItem) {
     Alert.alert('Delete item', `Remove "${item.display_name}" from your pantry?`, [
@@ -121,16 +137,49 @@ export default function PantryListScreen() {
         </Pressable>
       </View>
 
+      {items.length > 0 && (
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search your pantry"
+            placeholderTextColor={colors.textMuted}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+            clearButtonMode="never"
+            accessibilityLabel="Search your pantry"
+          />
+          {query.length > 0 && (
+            <Pressable
+              onPress={() => setQuery('')}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            </Pressable>
+          )}
+        </View>
+      )}
+
       {error && <Text style={styles.error}>{error}</Text>}
 
       {isLoading && items.length === 0 ? (
         <View style={styles.centered}>
           <ActivityIndicator color={colors.primary} />
         </View>
-      ) : sections.length === 0 ? (
+      ) : items.length === 0 ? (
         <View style={styles.centered}>
           <Text style={styles.emptyTitle}>Your pantry is empty</Text>
           <Text style={styles.emptySubtitle}>Add an item or try Quick Add to get started.</Text>
+        </View>
+      ) : sections.length === 0 ? (
+        <View style={styles.centered}>
+          <Text style={styles.emptyTitle}>No matches</Text>
+          <Text style={styles.emptySubtitle}>Nothing in your pantry matches "{query.trim()}".</Text>
         </View>
       ) : (
         <SectionList
@@ -190,6 +239,25 @@ const styles = StyleSheet.create({
   secondaryActionLabel: {
     color: colors.primary,
     fontWeight: '600',
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.text,
+    padding: 0,
   },
   listContent: {
     paddingHorizontal: spacing.md,
