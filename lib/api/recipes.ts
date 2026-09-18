@@ -90,3 +90,11 @@ export async function updateRecipeYoutubeMetadata(
   if (error) throw error;
   return data;
 }
+
+/** Cook events survive this — their recipe_id is set null and History
+ * falls back to the title snapshot (0021). Leftovers and shopping items
+ * that referenced the recipe keep existing with source_recipe_id null. */
+export async function deleteRecipe(id: string): Promise<void> {
+  const { error } = await supabase.from('recipes').delete().eq('id', id);
+  if (error) throw error;
+}

@@ -19,7 +19,7 @@ import { getCheckInCandidates } from '../../lib/checkInScoring';
 import { isUncertain } from '../../lib/formatInventory';
 import { useInventory } from '../../lib/inventory/InventoryContext';
 import { getRescueRowEntries } from '../../lib/rescueRow';
-import { useDailySuggestions } from '../../lib/suggestions/DailySuggestionsContext';
+import { useDailySuggestions, useOpenDailySuggestion } from '../../lib/suggestions/DailySuggestionsContext';
 import type { DailyNutrition } from '../../types/database';
 
 export default function HomeScreen() {
@@ -53,6 +53,7 @@ export default function HomeScreen() {
     isLoading: suggestionsLoading,
     error: suggestionsError,
   } = useDailySuggestions();
+  const openSuggestion = useOpenDailySuggestion();
   const suggestions = useMemo(() => dailySuggestions.map((d) => d.suggestion), [dailySuggestions]);
   const [kitchenSummary, setKitchenSummary] = useState<string | null>(null);
   const summaryRequested = useRef(false);
@@ -166,14 +167,12 @@ export default function HomeScreen() {
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.horizontalRow}>
-              {dailySuggestions.map(({ suggestion, savedRecipeId }, index) => (
+              {dailySuggestions.map(({ suggestion }, index) => (
                 <RecipeCard
                   key={suggestion.title}
                   recipe={suggestion}
                   variant="compact"
-                  onPress={() =>
-                    router.push(savedRecipeId ? `/recipe/${savedRecipeId}` : `/suggestion/${index}`)
-                  }
+                  onPress={() => openSuggestion(index)}
                 />
               ))}
             </View>

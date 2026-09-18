@@ -59,7 +59,8 @@ app/              Screens and routes (expo-router)
     pantry/       Pantry list, add/edit item, Quick Add, Receipt Scan, review
     cookbook/     The Cook tab: Suggested (today's 3 AI picks, unsaved
                    until saved), Cookbook (saved recipe grid), History
-  suggestion/     Read-only preview of an unsaved daily suggestion
+  recipe-preview  Read-only preview of an unsaved generated recipe
+                   (Suggested or Sous Chef) with Save to Cookbook
     macros.tsx    Daily macro rings + day-back navigation
   sous-chef.tsx   Sous Chef chat (modal, reachable from Home or mid-cook,
                    optionally grounded in the recipe being cooked)
@@ -694,6 +695,9 @@ client, and the Favorites filter dropped — see Known limitations)
   cached on-device (AsyncStorage). They're only written to `recipes` when
   the user saves one, and reinstalling the app or switching devices
   regenerates that day's set.
+- Generated recipes (daily suggestions and Sous Chef) are only saved
+  when the user taps Save on the preview. Saved recipes can be deleted
+  from the Cookbook or the recipe screen; their cook History is kept.
 - Manual recipe entry and Cookbook Scan are removed from the app for now.
   The `cookbook-scan` Edge Function is still deployed with no client
   caller, and previously saved manual/scanned recipes still show in the

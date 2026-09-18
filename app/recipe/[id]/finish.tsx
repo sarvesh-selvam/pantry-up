@@ -229,6 +229,7 @@ export default function FinishCookingScreen() {
 
       await createCookEvent(session.user.id, {
         recipe_id: recipe.id,
+        recipe_title: recipe.title,
         cooked_at: new Date().toISOString(),
         servings_prepared: Number.isFinite(servingsPrepared) ? servingsPrepared : null,
         servings_consumed: Number.isFinite(servingsConsumed) ? servingsConsumed : null,

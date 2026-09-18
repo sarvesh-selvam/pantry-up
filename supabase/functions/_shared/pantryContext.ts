@@ -129,12 +129,14 @@ export async function loadPantryContext(
  */
 async function loadRecentCookEvents(
   supabase: ReturnType<typeof getUserSupabaseClient>,
-  events: { recipe_id: string; cooked_at: string }[],
+  events: { recipe_id: string | null; cooked_at: string }[],
   canonicalFoods: CanonicalFoodRef[]
 ): Promise<RecentCookEvent[]> {
   if (events.length === 0) return [];
 
-  const recipeIds = [...new Set(events.map((event) => event.recipe_id))];
+  // recipe_id is null once a recipe has been deleted (0021) — the cook
+  // still counts, it just contributes no cuisine/category signal.
+  const recipeIds = [...new Set(events.flatMap((event) => (event.recipe_id ? [event.recipe_id] : [])))];
   const { data: recipes, error } = await supabase
     .from('recipes')
     .select('id, cuisine, ingredients')
@@ -156,7 +158,7 @@ async function loadRecentCookEvents(
   );
 
   return events.map((event) => {
-    const recipe = recipeById.get(event.recipe_id);
+    const recipe = event.recipe_id ? recipeById.get(event.recipe_id) : undefined;
     return {
       cuisine: recipe?.cuisine ?? null,
       ingredientCategories: recipe?.categories ?? [],

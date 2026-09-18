@@ -33,16 +33,22 @@ export async function fetchCookEvents(): Promise<CookEventWithRecipeTitle[]> {
   if (error) throw error;
   if (!events || events.length === 0) return [];
 
-  const recipeIds = [...new Set(events.map((event) => event.recipe_id))];
-  const { data: recipes, error: recipesError } = await supabase
-    .from('recipes')
-    .select('id, title')
-    .in('id', recipeIds);
-  if (recipesError) throw recipesError;
+  // Current title wins (recipes can't be renamed today, but that's the
+  // honest source); the snapshot covers deleted recipes (recipe_id null).
+  const recipeIds = [...new Set(events.flatMap((event) => (event.recipe_id ? [event.recipe_id] : [])))];
+  let titleById = new Map<string, string>();
+  if (recipeIds.length > 0) {
+    const { data: recipes, error: recipesError } = await supabase
+      .from('recipes')
+      .select('id, title')
+      .in('id', recipeIds);
+    if (recipesError) throw recipesError;
+    titleById = new Map((recipes ?? []).map((recipe) => [recipe.id, recipe.title]));
+  }
 
-  const titleById = new Map((recipes ?? []).map((recipe) => [recipe.id, recipe.title]));
   return events.map((event) => ({
     ...event,
-    recipeTitle: titleById.get(event.recipe_id) ?? 'Deleted recipe',
+    recipeTitle:
+      (event.recipe_id ? titleById.get(event.recipe_id) : undefined) ?? event.recipe_title ?? 'Deleted recipe',
   }));
 }

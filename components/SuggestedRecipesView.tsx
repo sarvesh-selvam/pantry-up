@@ -1,15 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../constants/theme';
-import { useDailySuggestions } from '../lib/suggestions/DailySuggestionsContext';
+import { useDailySuggestions, useOpenDailySuggestion } from '../lib/suggestions/DailySuggestionsContext';
 import { RecipeCard } from './RecipeCard';
 
 /** Cook › Suggested: today's (at most three) AI suggestions. Unsaved until
  * the user taps the bookmark here or Save on the preview screen. */
 export function SuggestedRecipesView() {
-  const router = useRouter();
+  const openSuggestion = useOpenDailySuggestion();
   const { suggestions, isLoading, error, saveSuggestion } = useDailySuggestions();
   const [savingIndex, setSavingIndex] = useState<number | null>(null);
 
@@ -39,12 +38,7 @@ export function SuggestedRecipesView() {
       ) : (
         suggestions.map(({ suggestion, savedRecipeId }, index) => (
           <View key={suggestion.title} style={styles.cardWrapper}>
-            <RecipeCard
-              recipe={suggestion}
-              onPress={() =>
-                router.push(savedRecipeId ? `/recipe/${savedRecipeId}` : `/suggestion/${index}`)
-              }
-            />
+            <RecipeCard recipe={suggestion} onPress={() => openSuggestion(index)} />
             <Pressable
               style={styles.saveButton}
               onPress={() => handleSave(index)}

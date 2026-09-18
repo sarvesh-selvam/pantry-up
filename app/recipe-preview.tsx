@@ -1,12 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing } from '../../constants/theme';
-import { useInventory } from '../../lib/inventory/InventoryContext';
-import { matchRecipeToInventory } from '../../lib/recipeMatching';
-import { useDailySuggestions } from '../../lib/suggestions/DailySuggestionsContext';
-import type { IngredientMatchStatus, RecipeIngredient } from '../../types/recipe';
+import { colors, radii, spacing } from '../constants/theme';
+import { useInventory } from '../lib/inventory/InventoryContext';
+import { matchRecipeToInventory } from '../lib/recipeMatching';
+import { useRecipePreview } from '../lib/recipePreview/RecipePreviewContext';
+import type { IngredientMatchStatus, RecipeIngredient } from '../types/recipe';
 
 const STATUS_LABELS: Record<IngredientMatchStatus, string> = {
   have: 'Already Have',
@@ -17,21 +17,19 @@ const STATUS_LABELS: Record<IngredientMatchStatus, string> = {
 const STATUS_ORDER: IngredientMatchStatus[] = ['have', 'verify', 'missing'];
 
 /**
- * Read-only preview of one of today's suggestions. Nothing here writes to
+ * Read-only preview of an unsaved generated recipe (a daily suggestion or
+ * a Sous Chef reply — see RecipePreviewContext). Nothing here writes to
  * `recipes` until the user taps Save — after that they land on the real
  * recipe detail screen, which is where cooking, favorites, videos and the
  * shopping-list action live (all of which need a saved recipe id).
  */
-export default function SuggestionPreviewScreen() {
-  const { index: indexParam } = useLocalSearchParams<{ index: string }>();
-  const index = Number(indexParam);
+export default function RecipePreviewScreen() {
   const router = useRouter();
   const { items } = useInventory();
-  const { suggestions, saveSuggestion } = useDailySuggestions();
+  const { preview } = useRecipePreview();
   const [saving, setSaving] = useState(false);
 
-  const entry = suggestions[index];
-  const recipe = entry?.suggestion;
+  const recipe = preview?.suggestion;
 
   // Live re-match, same reasoning as the recipe detail screen.
   const groupedIngredients = useMemo(() => {
@@ -45,9 +43,10 @@ export default function SuggestionPreviewScreen() {
   }, [recipe, items]);
 
   async function handleSave() {
+    if (!preview) return;
     setSaving(true);
     try {
-      const recipeId = await saveSuggestion(index);
+      const recipeId = await preview.save();
       router.replace(`/recipe/${recipeId}`);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save recipe');
@@ -58,7 +57,7 @@ export default function SuggestionPreviewScreen() {
   if (!recipe) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.errorText}>This suggestion is no longer available.</Text>
+        <Text style={styles.errorText}>This recipe is no longer available.</Text>
       </View>
     );
   }
@@ -137,26 +136,16 @@ export default function SuggestionPreviewScreen() {
         </View>
       ))}
 
-      {entry.savedRecipeId ? (
-        <Pressable
-          style={styles.saveButton}
-          onPress={() => router.replace(`/recipe/${entry.savedRecipeId}`)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.saveButtonText}>Open in Cookbook</Text>
-        </Pressable>
-      ) : (
-        <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving} accessibilityRole="button">
-          {saving ? (
-            <ActivityIndicator color={colors.primaryText} />
-          ) : (
-            <>
-              <Ionicons name="bookmark-outline" size={18} color={colors.primaryText} />
-              <Text style={styles.saveButtonText}>Save to Cookbook</Text>
-            </>
-          )}
-        </Pressable>
-      )}
+      <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving} accessibilityRole="button">
+        {saving ? (
+          <ActivityIndicator color={colors.primaryText} />
+        ) : (
+          <>
+            <Ionicons name="bookmark-outline" size={18} color={colors.primaryText} />
+            <Text style={styles.saveButtonText}>Save to Cookbook</Text>
+          </>
+        )}
+      </Pressable>
       <Text style={styles.saveHint}>Save it to cook it — cooking needs a saved recipe.</Text>
     </ScrollView>
   );

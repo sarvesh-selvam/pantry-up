@@ -59,7 +59,8 @@ export function CookHistoryView() {
       renderItem={({ item }) => (
         <Pressable
           style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-          onPress={() => router.push(`/recipe/${item.recipe_id}`)}
+          onPress={item.recipe_id ? () => router.push(`/recipe/${item.recipe_id}`) : undefined}
+          disabled={!item.recipe_id}
           accessibilityRole="button"
         >
           <Text style={styles.rowTitle} numberOfLines={1}>

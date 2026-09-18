@@ -3,11 +3,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../constants/theme';
-import { fetchRecipeById, setRecipeFavorite, updateRecipeYoutubeMetadata } from '../../lib/api/recipes';
+import { deleteRecipe, fetchRecipeById, setRecipeFavorite, updateRecipeYoutubeMetadata } from '../../lib/api/recipes';
+import { confirmDeleteRecipe } from '../../lib/confirmDeleteRecipe';
 import { fetchRecipeVideos, toVideoLookupInput } from '../../lib/api/youtube';
 import { useInventory } from '../../lib/inventory/InventoryContext';
 import { useShoppingList } from '../../lib/shoppingList/ShoppingListContext';
 import { matchRecipeToInventory } from '../../lib/recipeMatching';
+import { useDailySuggestions } from '../../lib/suggestions/DailySuggestionsContext';
 import type { IngredientMatchStatus, Recipe, RecipeIngredient } from '../../types/recipe';
 
 const STATUS_LABELS: Record<IngredientMatchStatus, string> = {
@@ -29,6 +31,8 @@ export default function RecipeDetailScreen() {
   const { addMissingFromRecipe } = useShoppingList();
   const [addingToList, setAddingToList] = useState(false);
   const [listFeedback, setListFeedback] = useState<string | null>(null);
+  const { forgetSavedRecipe } = useDailySuggestions();
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,6 +128,19 @@ export default function RecipeDetailScreen() {
       await setRecipeFavorite(recipe.id, nextValue);
     } catch {
       setRecipe((prev) => (prev ? { ...prev, is_favorite: !nextValue } : prev));
+    }
+  }
+
+  async function handleDelete() {
+    if (!recipe || !(await confirmDeleteRecipe(recipe.title))) return;
+    setDeleting(true);
+    try {
+      await deleteRecipe(recipe.id);
+      forgetSavedRecipe(recipe.id);
+      router.back();
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to delete recipe');
+      setDeleting(false);
     }
   }
 
@@ -322,6 +339,22 @@ export default function RecipeDetailScreen() {
         accessibilityRole="button"
       >
         <Text style={styles.cookButtonText}>Cook This</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.deleteButton}
+        onPress={handleDelete}
+        disabled={deleting}
+        accessibilityRole="button"
+      >
+        {deleting ? (
+          <ActivityIndicator color={colors.danger} />
+        ) : (
+          <>
+            <Ionicons name="trash-outline" size={16} color={colors.danger} />
+            <Text style={styles.deleteButtonText}>Delete Recipe</Text>
+          </>
+        )}
       </Pressable>
     </ScrollView>
   );
@@ -571,5 +604,18 @@ const styles = StyleSheet.create({
     color: colors.primaryText,
     fontWeight: '700',
     fontSize: 15,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    minHeight: 40,
+  },
+  deleteButtonText: {
+    color: colors.danger,
+    fontWeight: '600',
+    fontSize: 14,
   },
 });

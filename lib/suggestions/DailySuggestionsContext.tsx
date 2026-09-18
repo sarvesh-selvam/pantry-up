@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { todayLocalDate } from '../api/dailyNutrition';
 import { createRecipe, suggestionToRecipeInsert } from '../api/recipes';
@@ -6,6 +7,7 @@ import { fetchHomeSuggestions } from '../api/recipeSuggestions';
 import { logRecommendationEvent } from '../api/recommendationEvents';
 import { useAuth } from '../auth/AuthContext';
 import { useInventory } from '../inventory/InventoryContext';
+import { useRecipePreview } from '../recipePreview/RecipePreviewContext';
 import type { RecipeSuggestion } from '../../types/recipe';
 
 /** recipe-suggestions returns its candidates already sorted by score, so
@@ -31,6 +33,9 @@ interface DailySuggestionsContextValue {
   /** Saves the suggestion at `index` to the Cookbook (once; repeat calls
    * return the same recipe id) and returns the saved recipe's id. */
   saveSuggestion: (index: number) => Promise<string>;
+  /** Called after a recipe is deleted, so a suggestion that pointed at it
+   * reads as unsaved again instead of linking to a missing recipe. */
+  forgetSavedRecipe: (recipeId: string) => void;
 }
 
 const DailySuggestionsContext = createContext<DailySuggestionsContextValue | undefined>(undefined);
@@ -147,9 +152,22 @@ export function DailySuggestionsProvider({ children }: PropsWithChildren) {
     [day, userId]
   );
 
+  const forgetSavedRecipe = useCallback(
+    (recipeId: string) => {
+      if (!userId || !day?.suggestions.some((s) => s.savedRecipeId === recipeId)) return;
+      const next: CachedDay = {
+        ...day,
+        suggestions: day.suggestions.map((s) => (s.savedRecipeId === recipeId ? { ...s, savedRecipeId: null } : s)),
+      };
+      setDay(next);
+      writeCache(userId, next);
+    },
+    [day, userId]
+  );
+
   return (
     <DailySuggestionsContext.Provider
-      value={{ suggestions: day?.suggestions ?? [], isLoading, error, saveSuggestion }}
+      value={{ suggestions: day?.suggestions ?? [], isLoading, error, saveSuggestion, forgetSavedRecipe }}
     >
       {children}
     </DailySuggestionsContext.Provider>
@@ -160,4 +178,26 @@ export function useDailySuggestions() {
   const ctx = useContext(DailySuggestionsContext);
   if (!ctx) throw new Error('useDailySuggestions must be used within a DailySuggestionsProvider');
   return ctx;
+}
+
+/** Opens a daily suggestion: the saved recipe if it's been saved,
+ * otherwise the unsaved preview (shared by Home and Cook › Suggested). */
+export function useOpenDailySuggestion() {
+  const router = useRouter();
+  const { suggestions, saveSuggestion } = useDailySuggestions();
+  const { setPreview } = useRecipePreview();
+
+  return useCallback(
+    (index: number) => {
+      const entry = suggestions[index];
+      if (!entry) return;
+      if (entry.savedRecipeId) {
+        router.push(`/recipe/${entry.savedRecipeId}`);
+        return;
+      }
+      setPreview({ suggestion: entry.suggestion, save: () => saveSuggestion(index) });
+      router.push('/recipe-preview');
+    },
+    [router, suggestions, saveSuggestion, setPreview]
+  );
 }

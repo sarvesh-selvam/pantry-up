@@ -2,7 +2,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +17,7 @@ import { colors, radii, spacing } from '../constants/theme';
 import { useAuth } from '../lib/auth/AuthContext';
 import { createRecipe, fetchRecipeById, suggestionToRecipeInsert } from '../lib/api/recipes';
 import { fetchRecipeVideos, toVideoLookupInput } from '../lib/api/youtube';
+import { useRecipePreview } from '../lib/recipePreview/RecipePreviewContext';
 import { sendSousChefMessage, type SousChefMessage, type SousChefRecipeContext } from '../lib/sousChef';
 import type { RecipeSuggestion } from '../types/recipe';
 
@@ -26,6 +26,9 @@ interface DisplayMessage {
   role: 'user' | 'assistant';
   content: string;
   recipe?: RecipeSuggestion | null;
+  /** Set once the user saves this reply's recipe from the preview screen —
+   * nothing is written to `recipes` before that. */
+  savedRecipeId?: string | null;
 }
 
 export default function SousChefScreen() {
@@ -64,7 +67,7 @@ export default function SousChefScreen() {
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const { setPreview } = useRecipePreview();
 
   async function handleSend() {
     const text = input.trim();
@@ -113,21 +116,33 @@ export default function SousChefScreen() {
     }
   }
 
-  async function handleSaveRecipe(message: DisplayMessage) {
-    if (!message.recipe || !session) return;
-    setSavingKey(message.key);
-    try {
-      const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
-      const saved = await createRecipe(
-        session.user.id,
-        suggestionToRecipeInsert(message.recipe, lastUserMessage?.content ?? 'Sous Chef suggestion')
-      );
-      router.push(`/recipe/${saved.id}`);
-    } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save recipe');
-    } finally {
-      setSavingKey(null);
+  function handleOpenRecipe(message: DisplayMessage) {
+    const recipe = message.recipe;
+    if (!recipe || !session) return;
+    if (message.savedRecipeId) {
+      router.push(`/recipe/${message.savedRecipeId}`);
+      return;
     }
+    const userId = session.user.id;
+    // The user request that produced this reply — the nearest user message
+    // before it — is the explainability record's `constraints`.
+    const index = messages.findIndex((m) => m.key === message.key);
+    const request = messages
+      .slice(0, index)
+      .reverse()
+      .find((m) => m.role === 'user');
+    setPreview({
+      suggestion: recipe,
+      save: async () => {
+        const saved = await createRecipe(
+          userId,
+          suggestionToRecipeInsert(recipe, request?.content ?? 'Sous Chef suggestion')
+        );
+        setMessages((prev) => prev.map((m) => (m.key === message.key ? { ...m, savedRecipeId: saved.id } : m)));
+        return saved.id;
+      },
+    });
+    router.push('/recipe-preview');
   }
 
   return (
@@ -157,13 +172,10 @@ export default function SousChefScreen() {
             </View>
             {item.recipe && (
               <View style={styles.cardWrapper}>
-                <RecipeCard recipe={item.recipe} onPress={() => handleSaveRecipe(item)} variant="full" />
-                {savingKey === item.key && (
-                  <View style={styles.savingOverlay}>
-                    <ActivityIndicator color={colors.primary} />
-                  </View>
-                )}
-                <Text style={styles.tapHint}>Tap the recipe to save it and view details</Text>
+                <RecipeCard recipe={item.recipe} onPress={() => handleOpenRecipe(item)} variant="full" />
+                <Text style={styles.tapHint}>
+                  {item.savedRecipeId ? 'Saved to your Cookbook — tap to open' : 'Tap the recipe to preview and save it'}
+                </Text>
               </View>
             )}
           </View>
@@ -256,17 +268,6 @@ const styles = StyleSheet.create({
   cardWrapper: {
     width: '100%',
     gap: 4,
-  },
-  savingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radii.md,
   },
   tapHint: {
     fontSize: 11,

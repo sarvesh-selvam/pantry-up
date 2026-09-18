@@ -27,7 +27,7 @@ export function cuisinesCookedFrequency(
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const event of cookEvents) {
-    const cuisine = recipesById.get(event.recipe_id)?.cuisine;
+    const cuisine = event.recipe_id ? recipesById.get(event.recipe_id)?.cuisine : undefined;
     if (!cuisine) continue;
     counts[cuisine] = (counts[cuisine] ?? 0) + 1;
   }
@@ -36,7 +36,7 @@ export function cuisinesCookedFrequency(
 
 /** Recipes saved N+ days ago with no matching cook_event. */
 export function recipesSavedNotCooked(recipes: Recipe[], cookEvents: CookEvent[], minAgeDays = 3): Recipe[] {
-  const cookedRecipeIds = new Set(cookEvents.map((event) => event.recipe_id));
+  const cookedRecipeIds = new Set(cookEvents.flatMap((event) => (event.recipe_id ? [event.recipe_id] : [])));
   const cutoff = Date.now() - minAgeDays * 24 * 60 * 60 * 1000;
   return recipes.filter((recipe) => !cookedRecipeIds.has(recipe.id) && new Date(recipe.created_at).getTime() <= cutoff);
 }
@@ -45,7 +45,7 @@ export function recipesSavedNotCooked(recipes: Recipe[], cookEvents: CookEvent[]
 export function averageCookTimeMinutes(cookEvents: CookEvent[], recipesById: Map<string, Recipe>): number | null {
   const totals: number[] = [];
   for (const event of cookEvents) {
-    const recipe = recipesById.get(event.recipe_id);
+    const recipe = event.recipe_id ? recipesById.get(event.recipe_id) : undefined;
     if (!recipe) continue;
     const total = (recipe.prep_time ?? 0) + (recipe.cook_time ?? 0);
     if (total > 0) totals.push(total);
@@ -69,7 +69,7 @@ export function favoriteIngredientCategories(
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const event of cookEvents) {
-    const recipe = recipesById.get(event.recipe_id);
+    const recipe = event.recipe_id ? recipesById.get(event.recipe_id) : undefined;
     if (!recipe) continue;
     const categoriesInRecipe = new Set<string>();
     for (const ingredient of recipe.ingredients) {

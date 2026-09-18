@@ -47,7 +47,10 @@ export type ConsumedNutrition = {
 export type CookEvent = {
   id: string;
   user_id: string;
-  recipe_id: string;
+  /** Null once the recipe is deleted (0021) — the event itself is kept. */
+  recipe_id: string | null;
+  /** Snapshot at cook time, so History survives the recipe's deletion. */
+  recipe_title: string | null;
   cooked_at: string;
   servings_prepared: number | null;
   servings_consumed: number | null;

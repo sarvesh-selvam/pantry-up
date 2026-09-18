@@ -1,10 +1,13 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../constants/theme';
-import { fetchUserRecipes } from '../lib/api/recipes';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { colors, radii, spacing } from '../constants/theme';
+import { deleteRecipe, fetchUserRecipes } from '../lib/api/recipes';
+import { confirmDeleteRecipe } from '../lib/confirmDeleteRecipe';
 import { useInventory } from '../lib/inventory/InventoryContext';
 import { matchRecipeToInventory } from '../lib/recipeMatching';
+import { useDailySuggestions } from '../lib/suggestions/DailySuggestionsContext';
 import type { Recipe } from '../types/recipe';
 import { RecipeCard } from './RecipeCard';
 
@@ -16,6 +19,7 @@ export function CookbookView() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { forgetSavedRecipe } = useDailySuggestions();
 
   useFocusEffect(
     useCallback(() => {
@@ -38,6 +42,19 @@ export function CookbookView() {
       };
     }, [])
   );
+
+  async function handleDelete(recipe: Recipe) {
+    if (!(await confirmDeleteRecipe(recipe.title))) return;
+    const previous = recipes;
+    setRecipes((prev) => prev.filter((r) => r.id !== recipe.id));
+    try {
+      await deleteRecipe(recipe.id);
+      forgetSavedRecipe(recipe.id);
+    } catch (err) {
+      setRecipes(previous);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to delete recipe');
+    }
+  }
 
   if (loading) {
     return <ActivityIndicator color={colors.primary} style={styles.spinner} />;
@@ -88,6 +105,15 @@ export function CookbookView() {
                   style={styles.gridCard}
                   onPress={() => router.push(`/recipe/${recipe.id}`)}
                 />
+                <Pressable
+                  style={styles.deleteButton}
+                  onPress={() => handleDelete(recipe)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${recipe.title}`}
+                >
+                  <Ionicons name="trash-outline" size={16} color={colors.textMuted} />
+                </Pressable>
               </View>
             );
           }}
@@ -128,6 +154,15 @@ const styles = StyleSheet.create({
   },
   gridCell: {
     flex: 1,
+    position: 'relative',
+  },
+  deleteButton: {
+    position: 'absolute',
+    top: spacing.xs,
+    right: spacing.xs,
+    backgroundColor: colors.surface,
+    borderRadius: radii.pill,
+    padding: 6,
   },
   gridCard: {
     flex: 1,
