@@ -35,13 +35,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="search"
-        options={{
-          title: 'Search',
-          tabBarIcon: ({ color, size }) => <Ionicons name="search-outline" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
         name="pantry"
         options={{
           title: 'Pantry',
@@ -51,14 +44,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="cookbook"
         options={{
-          title: 'Cookbook',
+          title: 'Cook',
           tabBarIcon: ({ color, size }) => <Ionicons name="book-outline" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="macros"
         options={{
-          title: 'Macros',
+          title: 'Nutrition',
           tabBarIcon: ({ color, size }) => <Ionicons name="stats-chart-outline" size={size} color={color} />,
         }}
       />

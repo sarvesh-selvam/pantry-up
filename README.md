@@ -500,9 +500,8 @@ through scoring.
   in Pantry immediately and becomes Rescue-Row-eligible once it's 2+ days
   old, same aging rule as any other leftover
 - Every completed cook creates a `cook_events` row (servings, applied
-  mutations, any leftovers created) — viewable in a real History list,
-  which now lives in the Search tab (see Known limitations) as groundwork
-  for a future Global Search phase
+  mutations, any leftovers created) — originally shown in a History list
+  on the Search tab, which has since been removed (see Known limitations)
 - Verified no regression: opening, generating, and saving a recipe still
   never touch inventory — only a confirmed "Update Pantry" tap does (see
   Known limitations for how this was checked)
@@ -686,13 +685,11 @@ through scoring.
   results (intentional — see `sous-chef-chat`'s header comment — but it
   does mean the model can't literally "remember" a tool result verbatim
   from three turns ago, only what its own prior text said).
-- History lives in the Search tab (`app/(tabs)/search.tsx`) rather than a
-  dedicated tab — the tab bar still says "Search" and the screen says so
-  explicitly ("Search across your cooking history lands in a later
-  phase"), so it doesn't read as finished Search functionality. Chosen as
-  the architecturally simplest home for it now, and it's real, queryable
-  `cook_events` data that a future Global Search phase can build on
-  directly (Phase 5 turned out to be Kitchen Check-In, not Search).
+- The tab bar is Home, Pantry, Cook, Nutrition. The Search tab (which
+  hosted cook History as a placeholder) was removed, so there's currently
+  no screen showing past cooks — `cook_events` is still recorded and
+  `lib/api/cookEvents.ts`'s `fetchCookEvents` is ready for a future
+  History or Global Search screen.
 - No regression check for "generate/save/open a recipe never touches
   inventory" is a manual code-path audit (`grep` for every
   `editItem`/`removeItem`/`addItem` call site), not an automated test —

@@ -5,7 +5,7 @@ export default function CookbookLayout() {
   return (
     <CookbookScanProvider>
       <Stack screenOptions={{ headerShown: true }}>
-        <Stack.Screen name="index" options={{ title: 'Cookbook' }} />
+        <Stack.Screen name="index" options={{ title: 'Cook' }} />
         <Stack.Screen name="add" options={{ title: 'Add Recipe', presentation: 'modal' }} />
         <Stack.Screen name="scan" options={{ title: 'Scan Cookbook Page', presentation: 'modal' }} />
         <Stack.Screen name="scan-review" options={{ title: 'Review Scanned Recipe' }} />
