@@ -12,6 +12,7 @@ export default function PantryLayout() {
         options={{ title: 'Scan Receipt', presentation: 'modal' }}
       />
       <Stack.Screen name="quick-add-review" options={{ title: 'Review Items' }} />
+      <Stack.Screen name="shopping-review" options={{ title: 'Add to Pantry' }} />
     </Stack>
   );
 }
