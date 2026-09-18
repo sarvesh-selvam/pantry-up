@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckInBanner } from '../../components/CheckInBanner';
 import { KitchenStatusRow } from '../../components/KitchenStatusRow';
@@ -14,16 +14,13 @@ import { SousChefEntryBar } from '../../components/SousChefEntryBar';
 import { colors, spacing } from '../../constants/theme';
 import { fetchDailyNutrition, todayLocalDate } from '../../lib/api/dailyNutrition';
 import { fetchKitchenSummary } from '../../lib/api/kitchenSummary';
-import { createRecipe, suggestionToRecipeInsert } from '../../lib/api/recipes';
-import { logRecommendationEvent } from '../../lib/api/recommendationEvents';
-import { fetchHomeSuggestions } from '../../lib/api/recipeSuggestions';
 import { useAuth } from '../../lib/auth/AuthContext';
 import { getCheckInCandidates } from '../../lib/checkInScoring';
 import { isUncertain } from '../../lib/formatInventory';
 import { useInventory } from '../../lib/inventory/InventoryContext';
 import { getRescueRowEntries } from '../../lib/rescueRow';
+import { useDailySuggestions } from '../../lib/suggestions/DailySuggestionsContext';
 import type { DailyNutrition } from '../../types/database';
-import type { RecipeSuggestion } from '../../types/recipe';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -51,90 +48,50 @@ export default function HomeScreen() {
     };
   }, [session]);
 
-  const [suggestions, setSuggestions] = useState<RecipeSuggestion[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
-  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
-  const [savingTitle, setSavingTitle] = useState<string | null>(null);
+  const {
+    suggestions: dailySuggestions,
+    isLoading: suggestionsLoading,
+    error: suggestionsError,
+  } = useDailySuggestions();
+  const suggestions = useMemo(() => dailySuggestions.map((d) => d.suggestion), [dailySuggestions]);
   const [kitchenSummary, setKitchenSummary] = useState<string | null>(null);
+  const summaryRequested = useRef(false);
+  const isMounted = useRef(true);
+  useEffect(
+    () => () => {
+      isMounted.current = false;
+    },
+    []
+  );
 
+  // The summary card narrates exactly this data (Rescue Row + today's
+  // suggestions) — requested once per mount, after suggestions settle, and
+  // skipped entirely when there's nothing real to say rather than prompting
+  // the model into manufacturing something. Fire-and-forget: the rest of
+  // Home renders immediately either way.
   useEffect(() => {
-    let cancelled = false;
-    if (items.length === 0) {
-      setSuggestionsLoading(false);
-      return;
-    }
-    setSuggestionsLoading(true);
-    fetchHomeSuggestions()
-      .then((recipes) => {
-        if (cancelled) return;
-        setSuggestions(recipes);
-        // Best-effort, fire-and-forget — a logging failure shouldn't block
-        // suggestions from rendering. See db/migrations/0017 for why this
-        // is the one Phase 8 signal that needs its own event log.
-        if (session) {
-          for (const recipe of recipes) {
-            logRecommendationEvent(session.user.id, recipe.title, recipe.cuisine, 'shown').catch(() => {});
-          }
-        }
-
-        // The summary card narrates exactly this data (Rescue Row +
-        // these suggestions) — skip the call entirely when there's
-        // nothing real to say rather than prompting the model into
-        // manufacturing something. Fire-and-forget: the rest of Home
-        // renders immediately either way.
-        if (rescueRowEntries.length > 0 || recipes.length > 0) {
-          fetchKitchenSummary(
-            rescueRowEntries.map((entry) => ({
-              name: entry.item.display_name,
-              status: entry.statusLabel,
-              detail: entry.detail,
-            })),
-            recipes.map((r) => ({
-              title: r.title,
-              coverage: r.pantry_coverage_label,
-              missing: r.missing_ingredient_count,
-            }))
-          )
-            .then((summary) => {
-              if (!cancelled) setKitchenSummary(summary);
-            })
-            .catch(() => {
-              // Non-fatal — the card just doesn't render without it.
-            });
-        }
+    if (suggestionsLoading || summaryRequested.current) return;
+    if (rescueRowEntries.length === 0 && suggestions.length === 0) return;
+    summaryRequested.current = true;
+    fetchKitchenSummary(
+      rescueRowEntries.map((entry) => ({
+        name: entry.item.display_name,
+        status: entry.statusLabel,
+        detail: entry.detail,
+      })),
+      suggestions.map((r) => ({
+        title: r.title,
+        coverage: r.pantry_coverage_label,
+        missing: r.missing_ingredient_count,
+      }))
+    )
+      .then((summary) => {
+        if (isMounted.current) setKitchenSummary(summary);
       })
-      .catch((err) => {
-        if (!cancelled) setSuggestionsError(err instanceof Error ? err.message : 'Failed to load suggestions');
-      })
-      .finally(() => {
-        if (!cancelled) setSuggestionsLoading(false);
+      .catch(() => {
+        // Non-fatal — the card just doesn't render without it.
       });
-    return () => {
-      cancelled = true;
-    };
-    // Regenerating on every inventory change would be expensive (an LLM
-    // call per keystroke-adjacent edit) — Home suggestions (and the
-    // kitchen summary alongside them) refresh once per visit to this
-    // screen mount, not live with every inventory edit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function handleSaveSuggestion(suggestion: RecipeSuggestion) {
-    if (!session) return;
-    setSavingTitle(suggestion.title);
-    try {
-      const saved = await createRecipe(
-        session.user.id,
-        suggestionToRecipeInsert(suggestion, 'Home suggestion (no specific request)')
-      );
-      logRecommendationEvent(session.user.id, suggestion.title, suggestion.cuisine, 'tapped').catch(() => {});
-      router.push(`/recipe/${saved.id}`);
-    } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save recipe');
-    } finally {
-      setSavingTitle(null);
-    }
-  }
+  }, [suggestionsLoading, rescueRowEntries, suggestions]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -209,22 +166,18 @@ export default function HomeScreen() {
         ) : (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.horizontalRow}>
-              {suggestions.map((suggestion) => (
+              {dailySuggestions.map(({ suggestion, savedRecipeId }, index) => (
                 <RecipeCard
                   key={suggestion.title}
                   recipe={suggestion}
                   variant="compact"
-                  onPress={() => handleSaveSuggestion(suggestion)}
+                  onPress={() =>
+                    router.push(savedRecipeId ? `/recipe/${savedRecipeId}` : `/suggestion/${index}`)
+                  }
                 />
               ))}
             </View>
           </ScrollView>
-        )}
-        {savingTitle && (
-          <View style={styles.savingRow}>
-            <ActivityIndicator color={colors.primary} size="small" />
-            <Text style={styles.savingLabel}>Saving "{savingTitle}"…</Text>
-          </View>
         )}
       </View>
 
@@ -245,7 +198,6 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <Text style={styles.comingSoon}>Search lands in a later phase. Head to the Pantry tab to manage your inventory.</Text>
       <View style={styles.signOut}>
         <PrimaryButton label="Log out" onPress={signOut} variant="secondary" />
       </View>
@@ -324,21 +276,6 @@ const styles = StyleSheet.create({
   suggestionsEmpty: {
     color: colors.textMuted,
     fontSize: 13,
-  },
-  savingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  savingLabel: {
-    fontSize: 12,
-    color: colors.textMuted,
-  },
-  comingSoon: {
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: spacing.lg,
   },
   signOut: {
     marginTop: spacing.lg,

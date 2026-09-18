@@ -55,10 +55,11 @@ A mobile-first, inventory-aware kitchen app.
 ```
 app/              Screens and routes (expo-router)
   (auth)/         Login / signup, shown when signed out
-  (tabs)/         Home, Search (→ History), Pantry, Cookbook, Macros tabs
+  (tabs)/         Home, Pantry, Cook, Nutrition tabs
     pantry/       Pantry list, add/edit item, Quick Add, Receipt Scan, review
-    cookbook/     Recipe grid (favorites, pantry coverage), manual entry,
-                   cookbook page scan + scan review — own nested stack
+    cookbook/     The Cook tab: Suggested (today's 3 AI picks, unsaved
+                   until saved), Cookbook (saved recipe grid), History
+  suggestion/     Read-only preview of an unsaved daily suggestion
     macros.tsx    Daily macro rings + day-back navigation
   sous-chef.tsx   Sous Chef chat (modal, reachable from Home or mid-cook,
                    optionally grounded in the recipe being cooked)
@@ -83,8 +84,8 @@ components/       Shared UI components (incl. RecipeCard, reused by Sous
 constants/        Design tokens (colors, spacing)
 lib/              Supabase client, auth/inventory contexts, API helpers,
                    the Quick Add parser, the receipt scanner, shared image
-                   capture (imageCapture.ts, used by both Receipt Scan and
-                   Cookbook Scan), the cookbook scanner, the client-side
+                   capture (imageCapture.ts), the daily-suggestions cache
+                   (suggestions/DailySuggestionsContext.tsx), the client-side
                    recipe-to-inventory matching engine, the deterministic
                    nutrition calculation service (nutritionCalculation.ts)
                    and consumption logging (nutritionLogging.ts), the
@@ -535,7 +536,8 @@ through scoring.
   simply absent, not a zero-state, when nothing needs review. Check-In
   never auto-launches — the banner is the only entry point, always tapped
 
-**Phase 6**
+**Phase 6** (manual entry and Cookbook Scan were later removed from the
+client, and the Favorites filter dropped — see Known limitations)
 - Cookbook tab (`app/(tabs)/cookbook/`): a real 2-column grid of every
   saved recipe — AI-generated (Sous Chef/Home), manual, and cookbook-scanned
   all show up together — with a Favorites filter chip and a favorite-star
@@ -685,11 +687,17 @@ through scoring.
   results (intentional — see `sous-chef-chat`'s header comment — but it
   does mean the model can't literally "remember" a tool result verbatim
   from three turns ago, only what its own prior text said).
-- The tab bar is Home, Pantry, Cook, Nutrition. The Search tab (which
-  hosted cook History as a placeholder) was removed, so there's currently
-  no screen showing past cooks — `cook_events` is still recorded and
-  `lib/api/cookEvents.ts`'s `fetchCookEvents` is ready for a future
-  History or Global Search screen.
+- The tab bar is Home, Pantry, Cook, Nutrition. Cook has three sub-views:
+  Suggested, Cookbook, History (cook History moved here from the removed
+  Search tab).
+- Daily suggestions are capped at 3 and generated once per local day,
+  cached on-device (AsyncStorage). They're only written to `recipes` when
+  the user saves one, and reinstalling the app or switching devices
+  regenerates that day's set.
+- Manual recipe entry and Cookbook Scan are removed from the app for now.
+  The `cookbook-scan` Edge Function is still deployed with no client
+  caller, and previously saved manual/scanned recipes still show in the
+  Cookbook.
 - No regression check for "generate/save/open a recipe never touches
   inventory" is a manual code-path audit (`grep` for every
   `editItem`/`removeItem`/`addItem` call site), not an automated test —

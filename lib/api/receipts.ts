@@ -16,18 +16,3 @@ export async function uploadReceiptImage(userId: string, base64Jpeg: string): Pr
   if (error) throw error;
   return path;
 }
-
-/**
- * Cookbook Scan (Phase 6) reuses the same private bucket as receipts, per
- * spec — a `cookbook/` path prefix keeps the two kinds of photo apart
- * without needing a second bucket/migration. The bucket's RLS only checks
- * the first path segment is the uploader's own user id, which this still is.
- */
-export async function uploadCookbookScanImage(userId: string, base64Jpeg: string): Promise<string> {
-  const path = `${userId}/cookbook/${Date.now()}.jpg`;
-  const { error } = await supabase.storage.from('receipts').upload(path, decode(base64Jpeg), {
-    contentType: 'image/jpeg',
-  });
-  if (error) throw error;
-  return path;
-}

@@ -5,8 +5,7 @@
 // writes to inventory_items itself; the caller routes the result through
 // the same Quick Add review/confirm screen before saving anything.
 //
-// Photo capture itself lives in lib/imageCapture.ts — Cookbook Scan
-// (Phase 6) reuses it too, per spec.
+// Photo capture itself lives in lib/imageCapture.ts.
 
 import { pickPhoto, normalizeToJpegBase64, type PhotoSource } from './imageCapture';
 import { uploadReceiptImage } from './api/receipts';
