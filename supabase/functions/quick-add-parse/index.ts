@@ -31,6 +31,19 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabase = getUserSupabaseClient(authHeader);
+
+    // A present-but-anonymous header isn't enough: the anon key is a valid
+    // project JWT that ships in the app bundle, and the canonical_foods read
+    // below returns empty-without-error under the anon role — so without this
+    // check an anon-key caller reaches the billed Claude call. Same guard as
+    // recipe-videos.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return jsonResponse({ error: 'Not authenticated' }, 401);
+    }
+
     const { data: canonicalFoods, error: foodsError } = await supabase
       .from('canonical_foods')
       .select('id, canonical_name, category, aliases');
