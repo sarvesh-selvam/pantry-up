@@ -34,7 +34,7 @@ cd supabase/functions && deno test _shared/dietaryRestrictions.test.ts _shared/r
 
 Env vars: copy `.env.example` to `.env` and fill in a Supabase project's URL/anon key (`EXPO_PUBLIC_`-prefixed, inlined by Metro at build time — see `lib/supabase.ts`, which throws at import time if they're missing). The Anthropic key is a **Supabase secret**, not an app env var — it's only ever read inside `supabase/functions/*/index.ts` (Deno), never bundled into the client.
 
-Database: schema lives only in `db/migrations/*.sql`, applied in filename order via the Supabase SQL Editor (or `supabase db push` with the CLI). There is no ORM — the Supabase dashboard is never the source of truth; if the schema changes, write a new numbered migration and update `types/database.ts` to match.
+Database: schema lives only in `db/migrations/*.sql`, applied in filename order. `supabase/migrations` is a symlink to `db/migrations` (not a copy), so `supabase migration list` / `supabase db push` (after `supabase login` + `supabase link`) see the same files. `0001`–`0018` were originally applied by hand in the SQL Editor and then marked applied in the remote history with `supabase migration repair --status applied`. Name new migrations with the next number (`0021_...`) by hand, not `supabase migration new`, which would use a timestamp prefix. There is no ORM — the Supabase dashboard is never the source of truth; if the schema changes, write a new numbered migration and update `types/database.ts` to match.
 
 ## Architecture
 
