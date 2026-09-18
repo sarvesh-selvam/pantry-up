@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MacroRingRow } from '../../components/MacroRingRow';
 import { colors, radii, spacing } from '../../constants/theme';
 import { useAuth } from '../../lib/auth/AuthContext';
@@ -43,7 +44,7 @@ export default function MacrosScreen() {
   const isToday = date === todayLocalDate();
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.dateRow}>
         <Pressable
           onPress={() => setDate((d) => shiftLocalDate(d, -1))}
@@ -86,7 +87,7 @@ export default function MacrosScreen() {
           )}
         </View>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 

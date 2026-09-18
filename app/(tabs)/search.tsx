@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../../constants/theme';
 import { fetchCookEvents, type CookEventWithRecipeTitle } from '../../lib/api/cookEvents';
 
@@ -32,7 +33,7 @@ export default function SearchScreen() {
   }, []);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>History</Text>
         <Text style={styles.subtitle}>Search across your cooking history lands in a later phase.</Text>
@@ -71,7 +72,7 @@ export default function SearchScreen() {
           )}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 

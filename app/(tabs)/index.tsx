@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckInBanner } from '../../components/CheckInBanner';
 import { KitchenStatusRow } from '../../components/KitchenStatusRow';
 import { MacroRingRow } from '../../components/MacroRingRow';
@@ -105,6 +106,7 @@ export default function HomeScreen() {
   }
 
   return (
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.titleRow}>
         <View>
@@ -211,15 +213,20 @@ export default function HomeScreen() {
         <PrimaryButton label="Log out" onPress={signOut} variant="secondary" />
       </View>
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
     flexGrow: 1,
     backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     gap: spacing.sm,
     alignItems: 'center',
