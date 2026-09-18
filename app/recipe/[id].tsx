@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors, radii, spacing } from '../../constants/theme';
 import { fetchRecipeById, setRecipeFavorite, updateRecipeYoutubeMetadata } from '../../lib/api/recipes';
 import { fetchRecipeVideos, toVideoLookupInput } from '../../lib/api/youtube';
 import { useInventory } from '../../lib/inventory/InventoryContext';
+import { useShoppingList } from '../../lib/shoppingList/ShoppingListContext';
 import { matchRecipeToInventory } from '../../lib/recipeMatching';
 import type { IngredientMatchStatus, Recipe, RecipeIngredient } from '../../types/recipe';
 
@@ -25,6 +26,9 @@ export default function RecipeDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [videosLoading, setVideosLoading] = useState(false);
+  const { addMissingFromRecipe } = useShoppingList();
+  const [addingToList, setAddingToList] = useState(false);
+  const [listFeedback, setListFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +86,35 @@ export default function RecipeDetailScreen() {
     }
     return groups;
   }, [recipe, items]);
+
+  async function addMissingToList() {
+    if (!recipe || !groupedIngredients) return;
+    setAddingToList(true);
+    try {
+      const { addedCount, alreadyListedNames } = await addMissingFromRecipe(
+        recipe,
+        groupedIngredients.missing
+      );
+      // Never a silent no-op — say why nothing (or less than expected) was added.
+      const parts: string[] = [];
+      if (addedCount > 0) {
+        parts.push(`${addedCount} item${addedCount === 1 ? '' : 's'} added to your list.`);
+      }
+      if (alreadyListedNames.length > 0) {
+        parts.push(
+          addedCount === 0
+            ? 'Already on your list.'
+            : `Already on your list: ${alreadyListedNames.join(', ')}.`
+        );
+      }
+      setListFeedback(parts.join(' '));
+    } catch (err) {
+      setListFeedback(null);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to add to shopping list');
+    } finally {
+      setAddingToList(false);
+    }
+  }
 
   async function toggleFavorite() {
     if (!recipe) return;
@@ -171,7 +204,38 @@ export default function RecipeDetailScreen() {
         </View>
       )}
 
-      <Text style={styles.sectionTitle}>Ingredients</Text>
+      <View style={styles.ingredientsHeaderRow}>
+        <Text style={styles.sectionTitle}>Ingredients</Text>
+        {groupedIngredients && groupedIngredients.missing.length > 0 && (
+          <Pressable
+            style={styles.addMissingButton}
+            onPress={addMissingToList}
+            disabled={addingToList}
+            accessibilityRole="button"
+          >
+            {addingToList ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="cart-outline" size={14} color={colors.primary} />
+                <Text style={styles.addMissingLabel}>Add Missing to Shopping List</Text>
+              </>
+            )}
+          </Pressable>
+        )}
+      </View>
+      {listFeedback && (
+        <View style={styles.listFeedbackRow}>
+          <Text style={styles.listFeedbackText}>{listFeedback}</Text>
+          <Pressable
+            onPress={() => router.navigate({ pathname: '/(tabs)/pantry', params: { view: 'buy' } })}
+            hitSlop={8}
+            accessibilityRole="link"
+          >
+            <Text style={styles.listFeedbackLink}>View list</Text>
+          </Pressable>
+        </View>
+      )}
       {groupedIngredients &&
         STATUS_ORDER.map((status) =>
           groupedIngredients[status].length > 0 ? (
@@ -375,6 +439,49 @@ const styles = StyleSheet.create({
   nutritionPartialNote: {
     fontSize: 12,
     color: colors.uncertain,
+  },
+  ingredientsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  addMissingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    minHeight: 26,
+  },
+  addMissingLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  listFeedbackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    backgroundColor: `${colors.primary}14`,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+  },
+  listFeedbackText: {
+    flexShrink: 1,
+    fontSize: 13,
+    color: colors.text,
+  },
+  listFeedbackLink: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
   },
   ingredientGroup: {
     gap: 2,
