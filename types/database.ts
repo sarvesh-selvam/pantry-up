@@ -45,7 +45,8 @@ export type InventorySource =
   | 'quick_add'
   | 'receipt_scan'
   | 'pantry_snapshot'
-  | 'cooking';
+  | 'cooking'
+  | 'shopping_list';
 
 export type VerificationStatus =
   | 'confirmed'
@@ -196,6 +197,35 @@ export type InventoryItemUpdate = Partial<
   Omit<InventoryItem, 'id' | 'user_id' | 'created_at'>
 >;
 
+/** Shopping list ("Need to Buy") — see db/migrations/0019_shopping_items.sql. */
+export type ShoppingItemSource = 'manual' | 'recipe';
+
+export type ShoppingItem = {
+  id: string;
+  user_id: string;
+  canonical_food_id: string | null;
+  display_name: string;
+  category: FoodCategory | null;
+  quantity_value: number | null;
+  quantity_unit: string | null;
+  /** Only a "got it" checklist marker — never an inventory side effect. */
+  is_checked: boolean;
+  source: ShoppingItemSource;
+  source_recipe_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ShoppingItemInsert = Omit<
+  ShoppingItem,
+  'id' | 'user_id' | 'is_checked' | 'created_at' | 'updated_at'
+> &
+  Partial<Pick<ShoppingItem, 'is_checked'>>;
+
+export type ShoppingItemDbInsert = ShoppingItemInsert & Pick<ShoppingItem, 'user_id'>;
+
+export type ShoppingItemUpdate = Partial<Omit<ShoppingItem, 'id' | 'user_id' | 'created_at'>>;
+
 // Shape matches what `supabase gen types typescript` produces, which is
 // what @supabase/supabase-js's generics expect (each table needs
 // `Relationships`, and the schema needs `Views`/`Functions`, even if empty).
@@ -272,6 +302,12 @@ export interface Database {
         Row: RecommendationEvent;
         Insert: RecommendationEventDbInsert;
         Update: never;
+        Relationships: [];
+      };
+      shopping_items: {
+        Row: ShoppingItem;
+        Insert: ShoppingItemDbInsert;
+        Update: ShoppingItemUpdate;
         Relationships: [];
       };
     };
