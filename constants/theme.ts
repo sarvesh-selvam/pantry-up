@@ -9,6 +9,12 @@ export const colors = {
   danger: '#C4432B',
   uncertain: '#E08A2C',
   uncertainBackground: '#FCEEDD',
+  // Dark accent card (Home's kitchen-summary card) — reuses the same two
+  // tones as `text`/`background` inverted, rather than introducing an
+  // unrelated palette.
+  cardDark: '#1C1C1A',
+  cardDarkText: '#F7F7F5',
+  cardDarkMuted: '#9C9C97',
 };
 
 export const spacing = {

@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CheckInBanner } from '../../components/CheckInBanner';
 import { KitchenStatusRow } from '../../components/KitchenStatusRow';
+import { KitchenSummaryCard } from '../../components/KitchenSummaryCard';
 import { MacroRingRow } from '../../components/MacroRingRow';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { RecipeCard } from '../../components/RecipeCard';
@@ -12,6 +13,7 @@ import { RescueRowCard } from '../../components/RescueRowCard';
 import { SousChefEntryBar } from '../../components/SousChefEntryBar';
 import { colors, spacing } from '../../constants/theme';
 import { fetchDailyNutrition, todayLocalDate } from '../../lib/api/dailyNutrition';
+import { fetchKitchenSummary } from '../../lib/api/kitchenSummary';
 import { createRecipe, suggestionToRecipeInsert } from '../../lib/api/recipes';
 import { logRecommendationEvent } from '../../lib/api/recommendationEvents';
 import { fetchHomeSuggestions } from '../../lib/api/recipeSuggestions';
@@ -53,6 +55,7 @@ export default function HomeScreen() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
   const [savingTitle, setSavingTitle] = useState<string | null>(null);
+  const [kitchenSummary, setKitchenSummary] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +66,8 @@ export default function HomeScreen() {
     setSuggestionsLoading(true);
     fetchHomeSuggestions()
       .then((recipes) => {
-        if (!cancelled) setSuggestions(recipes);
+        if (cancelled) return;
+        setSuggestions(recipes);
         // Best-effort, fire-and-forget — a logging failure shouldn't block
         // suggestions from rendering. See db/migrations/0017 for why this
         // is the one Phase 8 signal that needs its own event log.
@@ -71,6 +75,32 @@ export default function HomeScreen() {
           for (const recipe of recipes) {
             logRecommendationEvent(session.user.id, recipe.title, recipe.cuisine, 'shown').catch(() => {});
           }
+        }
+
+        // The summary card narrates exactly this data (Rescue Row +
+        // these suggestions) — skip the call entirely when there's
+        // nothing real to say rather than prompting the model into
+        // manufacturing something. Fire-and-forget: the rest of Home
+        // renders immediately either way.
+        if (rescueRowEntries.length > 0 || recipes.length > 0) {
+          fetchKitchenSummary(
+            rescueRowEntries.map((entry) => ({
+              name: entry.item.display_name,
+              status: entry.statusLabel,
+              detail: entry.detail,
+            })),
+            recipes.map((r) => ({
+              title: r.title,
+              coverage: r.pantry_coverage_label,
+              missing: r.missing_ingredient_count,
+            }))
+          )
+            .then((summary) => {
+              if (!cancelled) setKitchenSummary(summary);
+            })
+            .catch(() => {
+              // Non-fatal — the card just doesn't render without it.
+            });
         }
       })
       .catch((err) => {
@@ -83,8 +113,9 @@ export default function HomeScreen() {
       cancelled = true;
     };
     // Regenerating on every inventory change would be expensive (an LLM
-    // call per keystroke-adjacent edit) — Home suggestions refresh once per
-    // visit to this screen mount, not live with every inventory edit.
+    // call per keystroke-adjacent edit) — Home suggestions (and the
+    // kitchen summary alongside them) refresh once per visit to this
+    // screen mount, not live with every inventory edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -139,6 +170,12 @@ export default function HomeScreen() {
       <View style={styles.entryBarWrapper}>
         <SousChefEntryBar onPress={() => router.push('/sous-chef')} />
       </View>
+
+      {kitchenSummary && (
+        <View style={styles.summaryWrapper}>
+          <KitchenSummaryCard summary={kitchenSummary} />
+        </View>
+      )}
 
       {/* Section B: Rescue Row — what needs attention soon. */}
       {rescueRowEntries.length > 0 && (
@@ -251,6 +288,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
   },
   entryBarWrapper: {
+    width: '100%',
+    marginTop: spacing.md,
+  },
+  summaryWrapper: {
     width: '100%',
     marginTop: spacing.md,
   },
